@@ -95,3 +95,60 @@ select:user-invalid,
 textarea:user-invalid {
   border-color: #f87171;
 }
+
+/* Gelombang audio & cincin halo Voice AI: default statis, aktif bergerak hanya saat no-preference */
+@keyframes voice-bar-listen {
+  0%,
+  100% {
+    transform: scaleY(0.24);
+  }
+  50% {
+    transform: scaleY(0.86);
+  }
+}
+
+@keyframes voice-bar-think {
+  0%,
+  100% {
+    transform: scaleY(0.18);
+  }
+  50% {
+    transform: scaleY(0.48);
+  }
+}
+
+@keyframes voice-halo-ring {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.09);
+  }
+}
+
+.voice-bar-listening {
+  transform: scaleY(0.42);
+}
+
+.voice-bar-thinking {
+  transform: scaleY(0.28);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .voice-bar-listening {
+    animation: voice-bar-listen 0.95s ease-in-out infinite;
+    animation-delay: var(--bar-delay, 0ms);
+  }
+
+  .voice-bar-thinking {
+    animation: voice-bar-think 1.2s ease-in-out infinite;
+    animation-delay: var(--bar-delay, 0ms);
+  }
+
+  .voice-halo-animate {
+    animation: voice-halo-ring 1.6s ease-in-out infinite;
+  }
+}

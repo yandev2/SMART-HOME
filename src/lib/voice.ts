@@ -5,6 +5,8 @@ import type { AssistantGender, TtsEngine, VoiceSettings } from './types';
 
 export type ActiveVoiceEngine = TtsEngine | 'browser-fallback';
 
+export const VOICE_WAVE_BANDS = 12;
+
 export function cleanTextForSpeech(raw: string): string {
   return raw
     .replace(/`+/g, '')
@@ -196,7 +198,8 @@ export class SmartHomeVoicePlayer {
 
   stop(
     onMouthLevel?: (level: number) => void,
-    onSpeakingChange?: (speaking: boolean) => void
+    onSpeakingChange?: (speaking: boolean) => void,
+    onWaveBins?: (bins: number[]) => void
   ) {
     this.activeRunId += 1;
     this.queue = [];
@@ -228,6 +231,7 @@ export class SmartHomeVoicePlayer {
     }
 
     onMouthLevel?.(0);
+    onWaveBins?.([]);
     onSpeakingChange?.(false);
   }
 
@@ -236,6 +240,7 @@ export class SmartHomeVoicePlayer {
     gender: AssistantGender;
     voiceSettings?: VoiceSettings;
     onMouthLevel: (level: number) => void;
+    onWaveBins?: (bins: number[]) => void;
     onSpeakingChange: (speaking: boolean) => void;
     onEngineUsed?: (engine: ActiveVoiceEngine) => void;
   }) {
@@ -269,7 +274,8 @@ export class SmartHomeVoicePlayer {
         runId,
         params.onMouthLevel,
         params.onSpeakingChange,
-        params.onEngineUsed
+        params.onEngineUsed,
+        params.onWaveBins
       );
     }
   }
@@ -279,10 +285,11 @@ export class SmartHomeVoicePlayer {
     gender: AssistantGender;
     voiceSettings?: VoiceSettings;
     onMouthLevel: (level: number) => void;
+    onWaveBins?: (bins: number[]) => void;
     onSpeakingChange: (speaking: boolean) => void;
     onEngineUsed?: (engine: ActiveVoiceEngine) => void;
   }) {
-    this.stop(params.onMouthLevel, params.onSpeakingChange);
+    this.stop(params.onMouthLevel, params.onSpeakingChange, params.onWaveBins);
     const settings = params.voiceSettings ?? getDefaultVoiceSettings(params.gender);
 
     // Untuk Gemini 3.8 TTS, kirim 1 request per balasan agar hemat kuota API Key user
@@ -292,6 +299,7 @@ export class SmartHomeVoicePlayer {
         gender: params.gender,
         voiceSettings: settings,
         onMouthLevel: params.onMouthLevel,
+        onWaveBins: params.onWaveBins,
         onSpeakingChange: params.onSpeakingChange,
         onEngineUsed: params.onEngineUsed,
       });
@@ -305,6 +313,7 @@ export class SmartHomeVoicePlayer {
         gender: params.gender,
         voiceSettings: settings,
         onMouthLevel: params.onMouthLevel,
+        onWaveBins: params.onWaveBins,
         onSpeakingChange: params.onSpeakingChange,
         onEngineUsed: params.onEngineUsed,
       });
@@ -357,7 +366,8 @@ export class SmartHomeVoicePlayer {
     runId: number,
     onMouthLevel: (level: number) => void,
     onSpeakingChange: (speaking: boolean) => void,
-    onEngineUsed?: (engine: ActiveVoiceEngine) => void
+    onEngineUsed?: (engine: ActiveVoiceEngine) => void,
+    onWaveBins?: (bins: number[]) => void
   ) {
     this.isProcessingQueue = true;
     onSpeakingChange(true);
@@ -376,7 +386,8 @@ export class SmartHomeVoicePlayer {
             decoded.buffer,
             item.voiceSettings.warmEq,
             runId,
-            onMouthLevel
+            onMouthLevel,
+            onWaveBins
           );
         } else {
           onEngineUsed?.('browser-fallback');
@@ -385,7 +396,8 @@ export class SmartHomeVoicePlayer {
             item.gender,
             item.voiceSettings,
             runId,
-            onMouthLevel
+            onMouthLevel,
+            onWaveBins
           );
         }
       }
@@ -393,6 +405,7 @@ export class SmartHomeVoicePlayer {
       if (runId === this.activeRunId) {
         this.isProcessingQueue = false;
         onMouthLevel(0);
+        onWaveBins?.([]);
         onSpeakingChange(false);
       }
     }
@@ -402,7 +415,8 @@ export class SmartHomeVoicePlayer {
     audioBuffer: AudioBuffer,
     warmEq: boolean,
     runId: number,
-    onMouthLevel: (level: number) => void
+    onMouthLevel: (level: number) => void,
+    onWaveBins?: (bins: number[]) => void
   ): Promise<void> {
     return new Promise((resolve) => {
       if (runId !== this.activeRunId) {
@@ -459,6 +473,7 @@ export class SmartHomeVoicePlayer {
       analyser.connect(ctx.destination);
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const freqArray = onWaveBins ? new Uint8Array(analyser.frequencyBinCount) : null;
       this.activeSource = source;
 
       const tick = () => {
@@ -472,6 +487,20 @@ export class SmartHomeVoicePlayer {
         const rms = Math.sqrt(sumSq / dataArray.length);
         const level = Math.min(1, Math.max(0, rms * 4.2));
         onMouthLevel(level);
+
+        if (onWaveBins && freqArray) {
+          analyser.getByteFrequencyData(freqArray);
+          const bands: number[] = [];
+          // Pita vokal manusia berada di bin ~1..26 dari 128 bin fftSize=256
+          for (let b = 0; b < VOICE_WAVE_BANDS; b++) {
+            const binStart = 1 + b * 2;
+            const binEnd = Math.min(freqArray.length - 1, binStart + 1);
+            const avg = (freqArray[binStart] + freqArray[binEnd]) / (2 * 255);
+            bands.push(Math.min(1, Math.pow(avg, 0.85) * 1.25));
+          }
+          onWaveBins(bands);
+        }
+
         this.rafId = requestAnimationFrame(tick);
       };
 
@@ -484,6 +513,7 @@ export class SmartHomeVoicePlayer {
           this.activeSource = null;
         }
         onMouthLevel(0);
+        onWaveBins?.([]);
         resolve();
       };
 
@@ -497,7 +527,8 @@ export class SmartHomeVoicePlayer {
     gender: AssistantGender,
     voiceSettings: VoiceSettings,
     runId: number,
-    onMouthLevel: (level: number) => void
+    onMouthLevel: (level: number) => void,
+    onWaveBins?: (bins: number[]) => void
   ): Promise<void> {
     return new Promise((resolve) => {
       if (
@@ -506,6 +537,7 @@ export class SmartHomeVoicePlayer {
         runId !== this.activeRunId
       ) {
         onMouthLevel(0);
+        onWaveBins?.([]);
         resolve();
         return;
       }
@@ -542,6 +574,15 @@ export class SmartHomeVoicePlayer {
         const simulated =
           0.25 + 0.55 * Math.abs(Math.sin(phase) * Math.cos(phase * 0.45));
         onMouthLevel(simulated);
+        if (onWaveBins) {
+          const bands: number[] = [];
+          for (let b = 0; b < VOICE_WAVE_BANDS; b++) {
+            const envelope = 1 - b / (VOICE_WAVE_BANDS + 2);
+            const harmonic = 0.4 + 0.6 * Math.abs(Math.sin(phase * 0.9 - b * 0.45));
+            bands.push(Math.min(1, simulated * envelope * harmonic * 1.15));
+          }
+          onWaveBins(bands);
+        }
         this.rafId = requestAnimationFrame(animateFallbackMouth);
       };
 
@@ -551,6 +592,7 @@ export class SmartHomeVoicePlayer {
           this.rafId = null;
         }
         onMouthLevel(0);
+        onWaveBins?.([]);
         resolve();
       };
 
