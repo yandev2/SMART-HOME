@@ -105,14 +105,12 @@ export default function AssistantAvatar({
           {(isSpeaking || isListening) && (
             <span className="absolute bottom-1 right-1 flex h-3.5 w-3.5">
               <span
-                className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${
-                  isListening ? 'bg-rose-400' : 'bg-emerald-400'
-                }`}
+                className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${isListening ? 'bg-rose-400' : 'bg-emerald-400'
+                  }`}
               />
               <span
-                className={`relative inline-flex h-3.5 w-3.5 rounded-full ring-2 ring-slate-950 ${
-                  isListening ? 'bg-rose-400' : 'bg-emerald-400'
-                }`}
+                className={`relative inline-flex h-3.5 w-3.5 rounded-full ring-2 ring-slate-950 ${isListening ? 'bg-rose-400' : 'bg-emerald-400'
+                  }`}
               />
             </span>
           )}
@@ -123,11 +121,10 @@ export default function AssistantAvatar({
 
   return (
     <div
-      className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition ${
-        isSpeaking
+      className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition ${isSpeaking
           ? 'bg-emerald-500/20 ring-2 ring-emerald-400/70'
           : 'bg-emerald-500/15 ring-1 ring-emerald-500/30'
-      }`}
+        }`}
       aria-hidden="true"
     >
       <svg
