@@ -110,8 +110,8 @@ export default function ControllerManager({
 
   return (
     <section aria-labelledby="controllers-heading" className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="min-w-0 flex-1">
           <h2 id="controllers-heading" className="text-sm font-semibold text-white">
             Unit NodeMCU (ESP8266)
           </h2>
@@ -123,7 +123,7 @@ export default function ControllerManager({
         <button
           type="button"
           onClick={openAdd}
-          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-emerald-400"
+          className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-emerald-400"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
           Tambah NodeMCU
@@ -151,10 +151,10 @@ export default function ControllerManager({
             return (
               <div
                 key={ctrl.id}
-                className="flex flex-col justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3.5"
+                className="flex min-w-0 flex-col justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3.5"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <h3 className="truncate text-[13px] font-semibold text-white">
                         {ctrl.name}
@@ -202,8 +202,8 @@ export default function ControllerManager({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1.5">
-                  <div className="min-w-0">
+                <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1.5">
+                  <div className="min-w-0 flex-1">
                     <span className="block text-[10px] uppercase tracking-wider text-slate-500">
                       Device Token
                     </span>

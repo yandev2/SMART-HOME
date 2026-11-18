@@ -21,7 +21,7 @@ export default async function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-8">
+    <main className="flex min-h-dvh flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-sm">
         <div className="mb-5 text-center">
           <div className="mx-auto mb-2.5 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">

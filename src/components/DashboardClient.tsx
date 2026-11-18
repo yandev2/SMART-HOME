@@ -199,92 +199,133 @@ export default function DashboardClient({
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="sticky top-0 z-20 border-b border-slate-800/90 bg-slate-900/85 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
-              <Home className="h-4 w-4" aria-hidden="true" />
+    <div className="min-h-dvh bg-slate-950 text-slate-100">
+      <header className="sticky top-0 z-20 border-b border-slate-800/90 bg-slate-900/90 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:px-4">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
+                <Home className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-bold leading-tight text-white">
+                  {assistantProfile.name} Home AI
+                </h1>
+                <p className="truncate text-[11px] leading-tight text-slate-400">
+                  {userEmail}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-sm font-bold leading-tight text-white">
-                {assistantProfile.name} Home AI
-              </h1>
-              <p className="text-[11px] leading-tight text-slate-400">{userEmail}</p>
-            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              aria-label="Keluar dari akun"
+              className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-lg border border-slate-700/80 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white sm:hidden"
+            >
+              <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Keluar</span>
+            </button>
           </div>
 
-          <nav aria-label="Menu utama" className="flex flex-wrap items-center gap-1">
+          <nav
+            aria-label="Menu utama"
+            className="grid w-full grid-cols-4 gap-1 border-t border-slate-800/80 pt-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:border-t-0 sm:pt-0"
+          >
             <button
               type="button"
               onClick={() => setActiveTab('assistant')}
-              className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              aria-current={activeTab === 'assistant' ? 'page' : undefined}
+              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'assistant'
-                  ? 'bg-emerald-500 text-slate-950'
+                  ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
-              <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-              Asisten &amp; Perangkat
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">Asisten &amp; Perangkat</span>
+              <span aria-hidden="true" className="max-w-full truncate sm:hidden">
+                Asisten
+              </span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('rooms')}
-              className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              aria-current={activeTab === 'rooms' ? 'page' : undefined}
+              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'rooms'
-                  ? 'bg-emerald-500 text-slate-950'
+                  ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
-              <DoorOpen className="h-3.5 w-3.5" aria-hidden="true" />
-              Ruangan ({rooms.length})
+              <DoorOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">Ruangan ({rooms.length})</span>
+              <span aria-hidden="true" className="max-w-full truncate sm:hidden">
+                Ruangan
+              </span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('controllers')}
-              className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              aria-current={activeTab === 'controllers' ? 'page' : undefined}
+              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'controllers'
-                  ? 'bg-emerald-500 text-slate-950'
+                  ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
-              <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
-              NodeMCU ({controllers.length})
+              <Cpu className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">NodeMCU ({controllers.length})</span>
+              <span aria-hidden="true" className="max-w-full truncate sm:hidden">
+                NodeMCU
+              </span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
-              className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              aria-current={activeTab === 'settings' ? 'page' : undefined}
+              className={`relative inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'settings'
-                  ? 'bg-emerald-500 text-slate-950'
+                  ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : hasApiKey
                     ? 'text-slate-300 hover:bg-slate-800'
                     : 'border border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
               }`}
             >
-              <Settings className="h-3.5 w-3.5" aria-hidden="true" />
-              Pengaturan {!hasApiKey && '(API Key Kosong)'}
+              <Settings className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">
+                Pengaturan {!hasApiKey && '(API Key Kosong)'}
+              </span>
+              <span aria-hidden="true" className="max-w-full truncate sm:hidden">
+                Setelan
+              </span>
+              {!hasApiKey && (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-2 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 sm:hidden"
+                />
+              )}
             </button>
 
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex min-h-[32px] items-center gap-1.5 rounded-lg border border-slate-700/80 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white"
+              className="hidden min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-700/80 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white sm:inline-flex"
             >
               <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden sm:inline">Keluar</span>
+              <span>Keluar</span>
             </button>
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-4">
+      <main className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4 sm:py-4">
         {activeTab === 'assistant' && (
           <div className="grid items-start gap-4 lg:grid-cols-12">
-            <div className="lg:col-span-6">
+            <div className="min-w-0 lg:col-span-6">
               <ChatAssistant
                 messages={messages}
                 assistantProfile={assistantProfile}
@@ -296,7 +337,7 @@ export default function DashboardClient({
                 onDevicesUpdated={refreshData}
               />
             </div>
-            <div className="lg:col-span-6">
+            <div className="min-w-0 lg:col-span-6">
               <DeviceManager
                 userId={userId}
                 rooms={rooms}
@@ -328,13 +369,13 @@ export default function DashboardClient({
 
         {activeTab === 'settings' && (
           <div className="grid items-start gap-6 lg:grid-cols-2">
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-6">
               <AssistantSettingsForm
                 initialProfile={assistantProfile}
                 onProfileChanged={handleProfileChanged}
               />
             </div>
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-6">
               <VoiceSettingsForm
                 assistantName={assistantProfile.name}
                 gender={assistantProfile.gender}

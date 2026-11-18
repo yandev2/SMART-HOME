@@ -509,10 +509,10 @@ export default function ChatAssistant({
   return (
     <section
       aria-labelledby="chat-heading"
-      className="flex h-[calc(100vh-6.25rem)] min-h-[420px] max-h-[560px] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70"
+      className="flex h-[52dvh] min-h-[340px] max-h-[440px] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 sm:h-[calc(100dvh-7.5rem)] sm:max-h-[560px]"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3.5 py-2">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2 sm:px-3.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <AssistantAvatar
             gender={assistantProfile.gender}
             mouthLevel={mouthLevel}
@@ -582,7 +582,7 @@ export default function ChatAssistant({
         </div>
       </div>
 
-      <div className="flex-1 space-y-2.5 overflow-y-auto p-3">
+      <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
         {!hasApiKey && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-100">
             <div className="flex items-center gap-2">
@@ -651,7 +651,7 @@ export default function ChatAssistant({
                 </div>
 
                 <div
-                  className={`max-w-[84%] space-y-1.5 rounded-xl px-3 py-2 text-[13px] leading-snug ${
+                  className={`min-w-0 max-w-[85%] space-y-1.5 rounded-xl px-3 py-2 text-[13px] leading-snug ${
                     isUser
                       ? 'bg-sky-600 text-white'
                       : 'border border-slate-800 bg-slate-950/80 text-slate-100'
@@ -663,8 +663,8 @@ export default function ChatAssistant({
                       <span>{statusLabel}</span>
                     </div>
                   ) : (
-                    <div className="flex items-start gap-2">
-                      <p className="flex-1 whitespace-pre-wrap">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <p className="min-w-0 flex-1 whitespace-pre-wrap break-words">
                         {renderFormattedText(msg.content)}
                       </p>
                       {!isUser && msg.content && (
@@ -720,7 +720,7 @@ export default function ChatAssistant({
         onSubmit={handleSubmit}
         className="flex items-end gap-2 border-t border-slate-800 bg-slate-950/60 p-2.5"
       >
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <label htmlFor="chat-input" className="sr-only">
             Ketik pesan untuk asisten smart home
           </label>
@@ -736,12 +736,12 @@ export default function ChatAssistant({
               micPhase === 'starting'
                 ? 'Menghubungkan mikrofon...'
                 : micPhase === 'ready'
-                  ? 'Mic aktif! Silakan bicara sekarang...'
+                  ? 'Mic aktif! Silakan bicara...'
                   : micPhase === 'listening'
-                    ? 'Mendengarkan suara kamu...'
-                    : 'Ketik atau tekan mic untuk perintah suara...'
+                    ? 'Mendengarkan suara...'
+                    : 'Tulis perintah atau tekan mic...'
             }
-            className="max-h-24 min-h-[38px] w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[13px] text-slate-100 placeholder:text-slate-500"
+            className="max-h-24 min-h-[40px] w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[13px] text-slate-100 placeholder:text-slate-500 sm:min-h-[38px]"
           />
         </div>
         {sttSupported && (
@@ -752,7 +752,7 @@ export default function ChatAssistant({
             aria-pressed={isListening}
             aria-label={isListening ? 'Hentikan rekaman suara' : 'Bicara lewat mikrofon'}
             title={isListening ? 'Berhenti mendengarkan' : 'Perintah suara (STT)'}
-            className={`inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition disabled:opacity-50 ${
+            className={`inline-flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-lg border transition disabled:opacity-50 sm:h-[38px] sm:w-[38px] ${
               isListening
                 ? 'animate-pulse border-rose-500 bg-rose-500/20 text-rose-300'
                 : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -769,7 +769,7 @@ export default function ChatAssistant({
           type="submit"
           disabled={sending || !input.trim()}
           aria-label="Kirim pesan"
-          className="inline-flex h-[38px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 text-xs font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 text-xs font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 sm:h-[38px]"
         >
           <Send className="h-3.5 w-3.5" aria-hidden="true" />
           <span className="hidden sm:inline">Kirim</span>

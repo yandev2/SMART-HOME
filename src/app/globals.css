@@ -2,6 +2,13 @@
 
 :root {
   color-scheme: dark;
+  --target-size: 24px;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --target-size: 44px;
+  }
 }
 
 body {
@@ -10,6 +17,22 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p,
+li {
+  text-wrap: pretty;
+}
+
+:where(a, code) {
+  overflow-wrap: anywhere;
 }
 
 /* Native <dialog> modal scroll containment (wajib pada dialog:modal dan ::backdrop) */
@@ -46,10 +69,14 @@ textarea {
 }
 
 @media (pointer: coarse) {
-  input:not([type="checkbox"]):not([type="radio"]),
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   select,
   textarea {
     font-size: max(1rem, 1em);
+  }
+
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"]), select) {
+    min-block-size: var(--target-size);
   }
 }
 
