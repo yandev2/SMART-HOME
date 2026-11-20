@@ -372,17 +372,18 @@ export function renderAnimatedFaceCanvas(
     }
   }
 
-  // 4. Animasi Mulut mengikuti bentuk & letak bibir asli karakter
+  // 4. Animasi Mulut mengikuti posisi, lengkungan, & warna bibir karakter
   if (mouthOpen > 0.03) {
     const mx = rig.mouth.x * width;
-    const my = appearance.detectedMouthY * height;
+    const my = rig.mouth.y * height;
     const mrx = rig.mouth.rx * width;
     const mry = rig.mouth.ry * height;
 
     const dropPx = mouthOpen * mry * 1.35;
-    const widthScale = 0.72 + mouthOpen * 0.16;
+    const widthScale = 0.78 + mouthOpen * 0.12;
     const openRx = mrx * widthScale;
-    const cornerOffset = appearance.smileCurveNorm * openRx * 0.85;
+    const curveNorm = rig.mouth.curve ?? appearance.smileCurveNorm;
+    const cornerOffset = curveNorm * openRx;
 
     // A. Geser potongan piksel bibir bawah & dagu sedikit ke bawah agar rahang ikut bergerak
     const imgEl = img as HTMLImageElement;
@@ -441,18 +442,20 @@ export function renderAnimatedFaceCanvas(
     );
     ctx.restore();
 
-    // B. Gambar rongga mulut berbentuk lengkung bibir asli (kiri-tengah-kanan)
+    // B. Gambar rongga mulut berbentuk lengkung bibir asli (Bezier tepat melewati titik tengah & sudut)
     const leftX = mx - openRx;
     const rightX = mx + openRx;
     const cornerY = my + cornerOffset;
     const upperMidY = my - dropPx * 0.14;
     const lowerMidY = my + dropPx;
+    const upperCtrlY = 2 * upperMidY - cornerY;
+    const lowerCtrlY = 2 * lowerMidY - cornerY;
 
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(leftX, cornerY);
-    ctx.quadraticCurveTo(mx, upperMidY, rightX, cornerY);
-    ctx.quadraticCurveTo(mx, lowerMidY, leftX, cornerY);
+    ctx.quadraticCurveTo(mx, upperCtrlY, rightX, cornerY);
+    ctx.quadraticCurveTo(mx, lowerCtrlY, leftX, cornerY);
     ctx.closePath();
 
     const mouthGrad = ctx.createLinearGradient(mx, upperMidY, mx, lowerMidY);
@@ -480,21 +483,21 @@ export function renderAnimatedFaceCanvas(
     }
     ctx.restore();
 
-    // C. Garis bibir atas & bawah halus sesuai warna bibir asli gambar
+    // C. Garis bibir atas & bawah halus sesuai warna & lengkungan bibir asli
     ctx.save();
     ctx.strokeStyle = appearance.lipColor;
     ctx.lineCap = 'round';
     ctx.lineWidth = Math.max(1.4, mrx * 0.11);
     ctx.beginPath();
     ctx.moveTo(leftX, cornerY);
-    ctx.quadraticCurveTo(mx, upperMidY, rightX, cornerY);
+    ctx.quadraticCurveTo(mx, upperCtrlY, rightX, cornerY);
     ctx.stroke();
 
     ctx.globalAlpha = 0.72;
     ctx.lineWidth = Math.max(1.1, mrx * 0.09);
     ctx.beginPath();
-    ctx.moveTo(leftX + openRx * 0.15, cornerY + dropPx * 0.12);
-    ctx.quadraticCurveTo(mx, lowerMidY + 0.5, rightX - openRx * 0.15, cornerY + dropPx * 0.12);
+    ctx.moveTo(leftX + openRx * 0.12, cornerY + dropPx * 0.1);
+    ctx.quadraticCurveTo(mx, lowerCtrlY + 0.5, rightX - openRx * 0.12, cornerY + dropPx * 0.1);
     ctx.stroke();
     ctx.restore();
   }

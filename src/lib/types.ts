@@ -70,6 +70,7 @@ export interface MouthRigPoint {
   y: number;
   rx: number;
   ry: number;
+  curve?: number;
 }
 
 export interface AvatarRig {

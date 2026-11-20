@@ -58,7 +58,7 @@ export const ASSISTANT_STYLE_OPTIONS: StyleOption[] = [
 export const DEFAULT_AVATAR_RIG: AvatarRig = {
   leftEye: { x: 0.405, y: 0.415, rx: 0.065, ry: 0.045 },
   rightEye: { x: 0.595, y: 0.415, rx: 0.065, ry: 0.045 },
-  mouth: { x: 0.5, y: 0.555, rx: 0.085, ry: 0.055 },
+  mouth: { x: 0.5, y: 0.555, rx: 0.085, ry: 0.055, curve: -0.25 },
   neckY: 0.67,
   motionIntensity: 1.0,
 };
@@ -92,6 +92,7 @@ export function sanitizeAvatarRig(raw: unknown): AvatarRig {
       y: clampRange(mo.y, 0.15, 0.92, DEFAULT_AVATAR_RIG.mouth.y),
       rx: clampRange(mo.rx, 0.03, 0.22, DEFAULT_AVATAR_RIG.mouth.rx),
       ry: clampRange(mo.ry, 0.02, 0.15, DEFAULT_AVATAR_RIG.mouth.ry),
+      curve: clampRange(mo.curve, -0.6, 0.45, DEFAULT_AVATAR_RIG.mouth.curve ?? -0.25),
     },
     neckY: clampRange(r.neckY, 0.35, 0.95, DEFAULT_AVATAR_RIG.neckY),
     motionIntensity: clampRange(r.motionIntensity, 0.2, 1.6, DEFAULT_AVATAR_RIG.motionIntensity),

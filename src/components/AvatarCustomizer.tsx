@@ -186,12 +186,13 @@ export default function AvatarCustomizer({
         mouth: {
           ...prev.mouth,
           y: Number(detected.detectedMouthY.toFixed(3)),
+          curve: Number(detected.smileCurveNorm.toFixed(2)),
         },
       }));
-      setLiveStatusText('Posisi bibir disesuaikan otomatis');
+      setLiveStatusText('Posisi dan lengkungan bibir disesuaikan otomatis');
       setFeedback({
         type: 'success',
-        text: 'Pin Mulut (M) otomatis diarahkan tepat ke garis bibir terdeteksi!',
+        text: 'Posisi & lengkungan bibir (M) otomatis diarahkan ke garis bibir! Kamu tetap bisa haluskan lewat slider.',
       });
     };
     img.src = imageDataUrl;
@@ -597,8 +598,29 @@ export default function AvatarCustomizer({
                             width: `${rig.mouth.rx * 200}%`,
                             height: `${rig.mouth.ry * 200}%`,
                           }}
-                          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-rose-400/80 bg-rose-400/15"
-                        />
+                          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-rose-400/80 bg-rose-400/10"
+                        >
+                          {(() => {
+                            const curveVal = rig.mouth.curve ?? -0.25;
+                            const cornerY = 50 + curveVal * 55;
+                            const ctrlY = 100 - cornerY;
+                            return (
+                              <svg
+                                viewBox="0 0 100 100"
+                                preserveAspectRatio="none"
+                                className="h-full w-full overflow-visible"
+                              >
+                                <path
+                                  d={`M 8 ${cornerY} Q 50 ${ctrlY} 92 ${cornerY}`}
+                                  fill="none"
+                                  stroke="#fb7185"
+                                  strokeWidth="4"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                            );
+                          })()}
+                        </div>
 
                         {/* 4 Handle Crosshair Transparan + Focusable agar wajah tetap terlihat jelas */}
                         <button
@@ -666,11 +688,11 @@ export default function AvatarCustomizer({
                             WebkitUserSelect: 'none',
                             userSelect: 'none',
                           }}
-                          className={`group absolute flex h-7 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-rose-400 bg-rose-500/5 ${
+                          className={`group absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-rose-300/80 bg-transparent ${
                             draggingPin === 'mouth' ? 'cursor-grabbing scale-110' : 'cursor-grab'
                           }`}
                         >
-                          <span className="h-1 w-4 rounded-full bg-rose-400/80 shadow" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-400 shadow" />
                           <span className="pointer-events-none absolute -bottom-4 rounded bg-rose-500 px-1 text-[8px] font-bold text-white">
                             M
                           </span>
@@ -711,8 +733,8 @@ export default function AvatarCustomizer({
                   </div>
                 </div>
 
-                {/* Slider Ukuran Area Mata, Mulut & Gerak Kepala */}
-                <div className="grid gap-3 sm:grid-cols-3">
+                {/* Slider Ukuran Area Mata, Mulut, Lengkungan Mulut & Gerak Kepala */}
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <label htmlFor="rig-eye-size" className="text-[11px] font-medium text-slate-300">
                       Area Mata
@@ -739,7 +761,7 @@ export default function AvatarCustomizer({
 
                   <div className="flex flex-col gap-1">
                     <label htmlFor="rig-mouth-size" className="text-[11px] font-medium text-slate-300">
-                      Area Mulut
+                      Lebar &amp; Area Mulut
                     </label>
                     <input
                       id="rig-mouth-size"
@@ -758,6 +780,42 @@ export default function AvatarCustomizer({
                       }}
                       className="h-2 w-full cursor-pointer accent-emerald-500"
                     />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <label htmlFor="rig-mouth-curve" className="font-medium text-slate-300">
+                        Lengkungan Mulut
+                      </label>
+                      <span className="font-mono text-[10px] text-rose-300">
+                        {(rig.mouth.curve ?? -0.25) < -0.06
+                          ? 'Senyum'
+                          : (rig.mouth.curve ?? -0.25) > 0.06
+                            ? 'Turun'
+                            : 'Datar'}
+                      </span>
+                    </div>
+                    <input
+                      id="rig-mouth-curve"
+                      type="range"
+                      min={-0.6}
+                      max={0.45}
+                      step={0.02}
+                      value={rig.mouth.curve ?? -0.25}
+                      onChange={(e) => {
+                        const curve = Number(e.target.value);
+                        setRig((prev) => ({
+                          ...prev,
+                          mouth: { ...prev.mouth, curve },
+                        }));
+                      }}
+                      className="h-2 w-full cursor-pointer accent-rose-400"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-500">
+                      <span>Senyum ︶</span>
+                      <span>Datar —</span>
+                      <span>Turun ︵</span>
+                    </div>
                   </div>
 
                   <div className="flex flex-col gap-1">
