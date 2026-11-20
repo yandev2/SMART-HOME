@@ -44,7 +44,7 @@ const unsigned long SYNC_INTERVAL_MS = 2000;       // Poll ke server setiap 2 de
 const unsigned long WIFI_RETRY_INTERVAL_MS = 15000;
 const unsigned long PORTAL_AUTO_RETRY_MS = 120000;
 const unsigned long EEPROM_SAVE_DELAY_MS = 5000;
-const unsigned long FRAME_INTERVAL_MS = 25;        // ~40 FPS animasi halus
+const unsigned long FRAME_INTERVAL_MS = 35;        // ~28 FPS agar aman bagi interrupt Wi-Fi ESP8266
 const int MAX_UNAUTHORIZED_BEFORE_PORTAL = 3;
 // =============================================================
 
@@ -115,6 +115,8 @@ float curB = 248.0f;
 
 // State animasi efek
 unsigned long lastFrameAt = 0;
+unsigned long lastSolidRefreshAt = 0;
+bool ledOutputDirty = true;
 uint16_t animPhase = 0;
 uint8_t fireHeat[300];
 
@@ -350,6 +352,7 @@ void configureStrip(int pin, int count) {
   strip->begin();
   strip->clear();
   strip->show();
+  ledOutputDirty = true;
 
   Serial.printf("[LED] Strip WS2812 aktif: %d LED pada GPIO %d\n", activeLedCount, activePin);
 }
@@ -391,16 +394,35 @@ void renderLedFrame() {
 
   // Interpolasi halus target kecerahan & warna (transisi lembut tanpa kaget)
   float goalBri = targetOn ? (float)targetBri : 0.0f;
-  curBri += (goalBri - curBri) * 0.16f;
-  curR += ((float)targetR - curR) * 0.16f;
-  curG += ((float)targetG - curG) * 0.16f;
-  curB += ((float)targetB - curB) * 0.16f;
+  bool fading =
+      (fabsf(goalBri - curBri) >= 0.6f) ||
+      (fabsf((float)targetR - curR) >= 0.6f) ||
+      (fabsf((float)targetG - curG) >= 0.6f) ||
+      (fabsf((float)targetB - curB) >= 0.6f);
+
+  curBri += (goalBri - curBri) * 0.20f;
+  curR += ((float)targetR - curR) * 0.20f;
+  curG += ((float)targetG - curG) * 0.20f;
+  curB += ((float)targetB - curB) * 0.20f;
 
   if (!targetOn && curBri < 0.8f) {
-    curBri = 0.0f;
-    strip->clear();
-    strip->show();
+    if (curBri > 0.0f || ledOutputDirty) {
+      curBri = 0.0f;
+      ledOutputDirty = false;
+      strip->clear();
+      strip->show();
+    }
     return;
+  }
+
+  // Untuk mode "solid" yang sudah selesai transisi, kirim ulang ke strip cukup tiap 500ms
+  // agar interrupt Wi-Fi & HTTPS TLS tidak terganggu pada strip > 100 LED.
+  if (targetEffect == "solid" && !fading && !ledOutputDirty && (now - lastSolidRefreshAt < 500)) {
+    return;
+  }
+  ledOutputDirty = false;
+  if (targetEffect == "solid") {
+    lastSolidRefreshAt = now;
   }
 
   float briFactor = curBri / 255.0f;
@@ -510,6 +532,7 @@ void renderLedFrame() {
   }
 
   strip->show();
+  yield();
 }
 
 // -------------------- Tombol Bawaan NodeMCU (FLASH / GPIO 0) --------------------
@@ -542,6 +565,7 @@ void handleFlashButton() {
         // Ketukan singkat -> toggle ON/OFF langsung (jalan meski Wi-Fi mati!)
         targetOn = !targetOn;
         dirtyOnState = true;
+        ledOutputDirty = true;
         localActionGen++;
         pushScheduled = true;
         pushScheduledAt = now + 120;
@@ -773,6 +797,7 @@ void startWiFiNonBlocking() {
   Serial.printf("[WIFI] Menyambung ke \"%s\"...\n", appConfig.ssid);
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
   WiFi.setAutoReconnect(true);
   if (strlen(appConfig.password) > 0) {
     WiFi.begin(appConfig.ssid, appConfig.password);
@@ -878,6 +903,7 @@ void applyLedPayload(const String& payload, uint32_t genAtStart) {
   }
 
   if (changed) {
+    ledOutputDirty = true;
     scheduleSnapshotSave();
     Serial.printf("[SYNC] ON=%d RGB=(%d,%d,%d) BRI=%d FX=%s\n",
                   targetOn ? 1 : 0, targetR, targetG, targetB, targetBri, targetEffect.c_str());
@@ -907,6 +933,7 @@ void syncWithServer() {
   }
   if (!begun) return;
 
+  http.setReuse(false);
   http.setTimeout(5000);
   http.addHeader("x-device-token", appConfig.deviceToken);
 
@@ -944,8 +971,8 @@ void syncWithServer() {
     unsigned long nowErr = millis();
     if (nowErr - lastErrorLogAt >= 4000) {
       lastErrorLogAt = nowErr;
-      Serial.printf("[ERR] Sync WLED gagal, code: %d (%s) | URL: %s\n",
-                    httpCode, http.errorToString(httpCode).c_str(), url.c_str());
+      Serial.printf("[ERR] Sync WLED gagal, code: %d (%s) | Heap: %u | URL: %s\n",
+                    httpCode, http.errorToString(httpCode).c_str(), ESP.getFreeHeap(), url.c_str());
     }
   }
 
