@@ -32,6 +32,8 @@ export default async function DashboardPage() {
     { data: controllers },
     { data: devices },
     presetsRes,
+    wledRes,
+    wledPresetsRes,
     { data: messages },
     settingsRes,
   ] = await Promise.all([
@@ -39,6 +41,8 @@ export default async function DashboardPage() {
     supabase.from('controllers').select('*').eq('user_id', user.id).order('name'),
     supabase.from('devices').select('*').eq('user_id', user.id).order('name'),
     supabase.from('presets').select('*').eq('user_id', user.id).order('name'),
+    supabase.from('wled_devices').select('*').eq('user_id', user.id).order('name'),
+    supabase.from('wled_presets').select('*').eq('user_id', user.id).order('name'),
     supabase
       .from('chat_messages')
       .select('*')
@@ -56,6 +60,9 @@ export default async function DashboardPage() {
 
   const initialPresets = presetsRes.error ? [] : presetsRes.data ?? [];
   const initialPresetsTableReady = !presetsRes.error;
+  const initialWledDevices = wledRes.error ? [] : wledRes.data ?? [];
+  const initialWledPresets = wledPresetsRes.error ? [] : wledPresetsRes.data ?? [];
+  const initialWledTableReady = !wledRes.error && !wledPresetsRes.error;
 
   let settingsRow: {
     key_hint?: string | null;
@@ -123,6 +130,9 @@ export default async function DashboardPage() {
       initialDevices={devices ?? []}
       initialPresets={initialPresets}
       initialPresetsTableReady={initialPresetsTableReady}
+      initialWledDevices={initialWledDevices}
+      initialWledPresets={initialWledPresets}
+      initialWledTableReady={initialWledTableReady}
       initialMessages={(messages ?? []).reverse()}
       initialHasApiKey={Boolean(keyHint)}
       initialMaskedApiKey={keyHint}

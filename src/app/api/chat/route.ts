@@ -78,6 +78,8 @@ export async function POST(request: Request) {
       { data: controllers, error: ctrlErr },
       { data: devices, error: devErr },
       presetsRes,
+      wledRes,
+      wledPresetsRes,
       settingsRes,
       { data: recentMessages },
     ] = await Promise.all([
@@ -89,6 +91,8 @@ export async function POST(request: Request) {
         .order('name'),
       supabase.from('devices').select('*').eq('user_id', user.id).order('name'),
       supabase.from('presets').select('*').eq('user_id', user.id).order('name'),
+      supabase.from('wled_devices').select('*').eq('user_id', user.id).order('name'),
+      supabase.from('wled_presets').select('*').eq('user_id', user.id).order('name'),
       supabase
         .from('user_settings')
         .select(
@@ -105,6 +109,8 @@ export async function POST(request: Request) {
     ]);
 
     const presets = presetsRes.error ? [] : presetsRes.data ?? [];
+    const wledDevices = wledRes.error ? [] : wledRes.data ?? [];
+    const wledPresets = wledPresetsRes.error ? [] : wledPresetsRes.data ?? [];
 
     let settingsData = settingsRes.data as {
       encrypted_gemini_api_key?: string | null;
@@ -195,6 +201,8 @@ export async function POST(request: Request) {
             controllers: controllers ?? [],
             devices: devices ?? [],
             presets,
+            wledDevices,
+            wledPresets,
             onStatus: (text) => sendEvent({ type: 'status', text }),
             onActions: (actions) => sendEvent({ type: 'actions', actions }),
             onTextDelta: (text) => sendEvent({ type: 'delta', text }),

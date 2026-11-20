@@ -4,6 +4,7 @@ import type {
   AvatarRig,
   CustomAvatarConfig,
   VoiceSettings,
+  WledEffect,
 } from './types';
 
 export interface GpioOption {
@@ -14,15 +15,15 @@ export interface GpioOption {
 
 // Mapping standar pin NodeMCU ESP8266 (board label -> nomor GPIO)
 export const NODEMCU_GPIO_OPTIONS: GpioOption[] = [
-  { pin: 5, label: 'D1 (GPIO 5)', note: 'Direkomendasikan untuk relay' },
-  { pin: 4, label: 'D2 (GPIO 4)', note: 'Direkomendasikan untuk relay' },
-  { pin: 14, label: 'D5 (GPIO 14)', note: 'Direkomendasikan untuk relay' },
-  { pin: 12, label: 'D6 (GPIO 12)', note: 'Direkomendasikan untuk relay' },
-  { pin: 13, label: 'D7 (GPIO 13)', note: 'Direkomendasikan untuk relay' },
-  { pin: 0, label: 'D3 (GPIO 0)', note: 'Hati-hati: harus HIGH saat boot' },
-  { pin: 2, label: 'D4 (GPIO 2)', note: 'Terhubung LED internal NodeMCU' },
+  { pin: 5, label: 'D1 (GPIO 5)', note: 'Relay CH1 PCB (direkomendasikan)' },
+  { pin: 4, label: 'D2 (GPIO 4)', note: 'Relay CH2 PCB (direkomendasikan)' },
+  { pin: 14, label: 'D5 (GPIO 14)', note: 'Relay CH3 PCB (direkomendasikan)' },
+  { pin: 12, label: 'D6 (GPIO 12)', note: 'Relay CH4 PCB (direkomendasikan)' },
+  { pin: 13, label: 'D7 (GPIO 13)', note: 'Input Push Button CH1 pada PCB 4CH' },
+  { pin: 0, label: 'D3 (GPIO 0)', note: 'Input Push Button CH3 pada PCB 4CH (HIGH saat boot)' },
+  { pin: 2, label: 'D4 (GPIO 2)', note: 'Input Push Button CH2 pada PCB 4CH / LED internal' },
   { pin: 15, label: 'D8 (GPIO 15)', note: 'Harus LOW saat boot' },
-  { pin: 16, label: 'D0 (GPIO 16)', note: 'Tidak mendukung semua fitur interrupt' },
+  { pin: 16, label: 'D0 (GPIO 16)', note: 'Input Push Button CH4 (wajib pull-up 4.7k)' },
 ];
 
 export function formatGpioLabel(pin: number): string {
@@ -269,5 +270,90 @@ export function getDefaultVoiceSettings(gender: AssistantGender): VoiceSettings 
         rate: 4,
         warmEq: true,
       };
+}
+
+export interface WledEffectOption {
+  id: WledEffect;
+  label: string;
+  note: string;
+}
+
+export const WLED_EFFECT_OPTIONS: WledEffectOption[] = [
+  { id: 'solid', label: 'Solid (Diam)', note: 'Warna stabil merata' },
+  { id: 'breathe', label: 'Breathe (Bernapas)', note: 'Redup-terang lembut & tenang' },
+  { id: 'rainbow', label: 'Rainbow (Pelangi)', note: 'Spektrum warna mengalir' },
+  { id: 'gradient', label: 'Gradient (Gradasi)', note: 'Perpaduan warna harmonis' },
+  { id: 'sparkle', label: 'Sparkle (Kerlip)', note: 'Kilau bintang di atas warna' },
+  { id: 'chase', label: 'Chase (Berjalan)', note: 'Titik cahaya berlari' },
+  { id: 'meteor', label: 'Meteor (Komet)', note: 'Ekor cahaya melintas' },
+  { id: 'fire', label: 'Fire (Api Hangat)', note: 'Simulasi cahaya api hangat' },
+];
+
+export interface WledColorSwatch {
+  name: string;
+  hex: string;
+}
+
+export const WLED_QUICK_COLORS: WledColorSwatch[] = [
+  { name: 'Biru', hex: '#2563EB' },
+  { name: 'Merah', hex: '#EF4444' },
+  { name: 'Hijau', hex: '#22C55E' },
+  { name: 'Kuning', hex: '#FACC15' },
+  { name: 'Pink', hex: '#EC4899' },
+  { name: 'Ungu', hex: '#9333EA' },
+  { name: 'Cyan', hex: '#06B6D4' },
+  { name: 'Oranye', hex: '#F97316' },
+  { name: 'Warm White', hex: '#FDBA74' },
+  { name: 'Cool White', hex: '#E0F2FE' },
+];
+
+export const WLED_GPIO_OPTIONS: GpioOption[] = [
+  { pin: 2, label: 'D4 (GPIO 2)', note: 'Direkomendasikan untuk WS2812 Data' },
+  { pin: 4, label: 'D2 (GPIO 4)', note: 'Alternatif pin Data WS2812' },
+  { pin: 5, label: 'D1 (GPIO 5)', note: 'Alternatif pin Data WS2812' },
+  { pin: 14, label: 'D5 (GPIO 14)', note: 'Alternatif pin Data WS2812' },
+  { pin: 12, label: 'D6 (GPIO 12)', note: 'Alternatif pin Data WS2812' },
+  { pin: 13, label: 'D7 (GPIO 13)', note: 'Alternatif pin Data WS2812' },
+];
+
+export function formatWledGpioLabel(pin: number): string {
+  const found = WLED_GPIO_OPTIONS.find((item) => item.pin === pin);
+  return found ? found.label : formatGpioLabel(pin);
+}
+
+export function sanitizeHexColor(raw: unknown, fallback = '#38BDF8'): string {
+  if (typeof raw !== 'string') return fallback;
+  const cleaned = raw.trim().toUpperCase();
+  if (/^#[0-9A-F]{6}$/.test(cleaned)) {
+    return cleaned;
+  }
+  if (/^[0-9A-F]{6}$/.test(cleaned)) {
+    return `#${cleaned}`;
+  }
+  return fallback;
+}
+
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const safe = sanitizeHexColor(hex);
+  const num = parseInt(safe.slice(1), 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+}
+
+export function isValidWledEffect(val: unknown): val is WledEffect {
+  return typeof val === 'string' && WLED_EFFECT_OPTIONS.some((e) => e.id === val);
+}
+
+export function clampWledByte(
+  val: unknown,
+  min: number,
+  max: number,
+  fallback: number
+): number {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(val)));
 }
 

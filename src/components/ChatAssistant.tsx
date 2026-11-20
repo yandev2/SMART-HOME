@@ -818,7 +818,23 @@ export default function ChatAssistant({
                                   : 'bg-slate-800 text-slate-300'
                               }`}
                             >
-                              {act.device_name}: {act.is_on ? 'NYALA' : 'MATI'}
+                              {act.kind === 'wled' && act.color_hex && (
+                                <span
+                                  className="h-2 w-2 rounded-full ring-1 ring-white/40"
+                                  style={{ backgroundColor: act.is_on ? act.color_hex : '#334155' }}
+                                  aria-hidden="true"
+                                />
+                              )}
+                              {act.device_name}:{' '}
+                              {act.kind === 'wled'
+                                ? act.is_on
+                                  ? act.preset_name
+                                    ? `${act.preset_name} (${act.effect ?? 'solid'})`
+                                    : `${act.color_hex ?? 'ON'} • ${act.effect ?? 'solid'}`
+                                  : 'MATI'
+                                : act.is_on
+                                  ? 'NYALA'
+                                  : 'MATI'}
                             </span>
                           ))}
                         </div>
@@ -953,7 +969,23 @@ export default function ChatAssistant({
                           : 'bg-slate-800 text-slate-300 ring-1 ring-slate-700'
                       }`}
                     >
-                      {act.device_name}: {act.is_on ? 'NYALA' : 'MATI'}
+                      {act.kind === 'wled' && act.color_hex && (
+                        <span
+                          className="h-2 w-2 rounded-full ring-1 ring-white/40"
+                          style={{ backgroundColor: act.is_on ? act.color_hex : '#334155' }}
+                          aria-hidden="true"
+                        />
+                      )}
+                      {act.device_name}:{' '}
+                      {act.kind === 'wled'
+                        ? act.is_on
+                          ? act.preset_name
+                            ? `${act.preset_name} (${act.effect ?? 'solid'})`
+                            : `${act.color_hex ?? 'ON'} • ${act.effect ?? 'solid'}`
+                          : 'MATI'
+                        : act.is_on
+                          ? 'NYALA'
+                          : 'MATI'}
                     </span>
                   ))}
                 </div>

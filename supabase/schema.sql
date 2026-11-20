@@ -106,6 +106,43 @@ begin
 exception when duplicate_object then null;
 end $$;
 
+-- 8. Tabel Perangkat WLED / Smart LED WS2812 (terpisah dari sistem Relay)
+create table if not exists public.wled_devices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  room_id uuid references public.rooms(id) on delete set null,
+  name text not null,
+  aliases text not null default '',
+  api_token text not null unique default encode(gen_random_bytes(24), 'hex'),
+  gpio_pin integer not null default 2, -- Default D4 (GPIO 2)
+  led_count integer not null default 60 check (led_count >= 1 and led_count <= 300),
+  is_on boolean not null default false,
+  brightness integer not null default 180 check (brightness >= 1 and brightness <= 255),
+  color_hex text not null default '#38BDF8',
+  effect text not null default 'solid' check (effect in ('solid', 'breathe', 'rainbow', 'chase', 'sparkle', 'fire', 'meteor', 'gradient')),
+  speed integer not null default 128 check (speed >= 0 and speed <= 255),
+  active_preset_id uuid,
+  last_seen timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- 9. Tabel Preset Warna & Efek WLED / Smart LED
+create table if not exists public.wled_presets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  wled_device_id uuid references public.wled_devices(id) on delete cascade,
+  name text not null,
+  keywords text not null default '',
+  is_on boolean not null default true,
+  color_hex text not null default '#A855F7',
+  brightness integer not null default 180 check (brightness >= 1 and brightness <= 255),
+  effect text not null default 'solid' check (effect in ('solid', 'breathe', 'rainbow', 'chase', 'sparkle', 'fire', 'meteor', 'gradient')),
+  speed integer not null default 128 check (speed >= 0 and speed <= 255),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Index untuk performa query
 create index if not exists idx_rooms_user_id on public.rooms(user_id);
 create index if not exists idx_controllers_user_id on public.controllers(user_id);
@@ -114,6 +151,9 @@ create index if not exists idx_devices_user_id on public.devices(user_id);
 create index if not exists idx_devices_controller_id on public.devices(controller_id);
 create index if not exists idx_chat_messages_user_id on public.chat_messages(user_id, created_at);
 create index if not exists idx_presets_user_id on public.presets(user_id);
+create index if not exists idx_wled_devices_user_id on public.wled_devices(user_id);
+create index if not exists idx_wled_devices_token on public.wled_devices(api_token);
+create index if not exists idx_wled_presets_user_id on public.wled_presets(user_id);
 
 -- Trigger otomatis update kolom updated_at
 create or replace function public.set_updated_at()
@@ -146,6 +186,16 @@ create trigger trg_presets_updated_at
   before update on public.presets
   for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_wled_devices_updated_at on public.wled_devices;
+create trigger trg_wled_devices_updated_at
+  before update on public.wled_devices
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_wled_presets_updated_at on public.wled_presets;
+create trigger trg_wled_presets_updated_at
+  before update on public.wled_presets
+  for each row execute function public.set_updated_at();
+
 -- Aktifkan Row Level Security (RLS)
 alter table public.rooms enable row level security;
 alter table public.controllers enable row level security;
@@ -154,6 +204,8 @@ alter table public.chat_sessions enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.user_settings enable row level security;
 alter table public.presets enable row level security;
+alter table public.wled_devices enable row level security;
+alter table public.wled_presets enable row level security;
 
 -- Policies: User hanya bisa mengakses data miliknya sendiri
 drop policy if exists "rooms_own_all" on public.rooms;
@@ -184,6 +236,14 @@ drop policy if exists "presets_own_all" on public.presets;
 create policy "presets_own_all" on public.presets
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "wled_devices_own_all" on public.wled_devices;
+create policy "wled_devices_own_all" on public.wled_devices
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "wled_presets_own_all" on public.wled_presets;
+create policy "wled_presets_own_all" on public.wled_presets
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- Aktifkan Supabase Realtime agar perubahan status perangkat langsung muncul di Web UI
 do $$
 begin
@@ -206,6 +266,18 @@ end $$;
 do $$
 begin
   alter publication supabase_realtime add table public.presets;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.wled_devices;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.wled_presets;
 exception when duplicate_object then null;
 end $$;
 

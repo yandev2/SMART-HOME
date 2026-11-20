@@ -39,10 +39,60 @@ export interface Preset {
   updated_at: string;
 }
 
+export type WledEffect =
+  | 'solid'
+  | 'breathe'
+  | 'rainbow'
+  | 'chase'
+  | 'sparkle'
+  | 'fire'
+  | 'meteor'
+  | 'gradient';
+
+export interface WledDevice {
+  id: string;
+  user_id: string;
+  room_id: string | null;
+  name: string;
+  aliases: string;
+  api_token: string;
+  gpio_pin: number;
+  led_count: number;
+  is_on: boolean;
+  brightness: number;
+  color_hex: string;
+  effect: WledEffect;
+  speed: number;
+  active_preset_id: string | null;
+  last_seen: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WledPreset {
+  id: string;
+  user_id: string;
+  wled_device_id: string | null;
+  name: string;
+  keywords: string;
+  is_on: boolean;
+  color_hex: string;
+  brightness: number;
+  effect: WledEffect;
+  speed: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ActionLog {
   device_id: string;
   device_name: string;
   is_on: boolean;
+  kind?: 'switch' | 'wled';
+  color_hex?: string;
+  effect?: WledEffect | string;
+  brightness?: number;
+  preset_name?: string;
 }
 
 export interface ChatMessage {

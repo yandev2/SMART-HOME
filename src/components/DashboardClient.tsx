@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Cpu, DoorOpen, Home, LogOut, MessageSquare, Settings } from 'lucide-react';
+import { Cpu, DoorOpen, Home, LogOut, MessageSquare, Palette, Settings } from 'lucide-react';
 import {
   GEMINI_VOICE_OPTIONS,
   VOICE_OPTIONS,
@@ -17,6 +17,8 @@ import type {
   Preset,
   Room,
   VoiceSettings,
+  WledDevice,
+  WledPreset,
 } from '@/lib/types';
 import ApiKeyManager from './ApiKeyManager';
 import AssistantSettingsForm from './AssistantSettingsForm';
@@ -27,6 +29,7 @@ import DeviceManager from './DeviceManager';
 import PresetManager from './PresetManager';
 import RoomManager from './RoomManager';
 import VoiceSettingsForm from './VoiceSettingsForm';
+import WledManager from './WledManager';
 
 interface DashboardClientProps {
   userId: string;
@@ -36,13 +39,16 @@ interface DashboardClientProps {
   initialDevices: Device[];
   initialPresets: Preset[];
   initialPresetsTableReady: boolean;
+  initialWledDevices: WledDevice[];
+  initialWledPresets: WledPreset[];
+  initialWledTableReady: boolean;
   initialMessages: ChatMessage[];
   initialHasApiKey: boolean;
   initialMaskedApiKey: string | null;
   initialAssistantProfile: AssistantProfile;
 }
 
-type TabKey = 'assistant' | 'rooms' | 'controllers' | 'settings';
+type TabKey = 'assistant' | 'wled' | 'rooms' | 'controllers' | 'settings';
 
 export default function DashboardClient({
   userId,
@@ -52,6 +58,9 @@ export default function DashboardClient({
   initialDevices,
   initialPresets,
   initialPresetsTableReady,
+  initialWledDevices,
+  initialWledPresets,
+  initialWledTableReady,
   initialMessages,
   initialHasApiKey,
   initialMaskedApiKey,
@@ -64,6 +73,9 @@ export default function DashboardClient({
   const [devices, setDevices] = useState<Device[]>(initialDevices);
   const [presets, setPresets] = useState<Preset[]>(initialPresets);
   const [presetsTableReady, setPresetsTableReady] = useState(initialPresetsTableReady);
+  const [wledDevices, setWledDevices] = useState<WledDevice[]>(initialWledDevices);
+  const [wledPresets, setWledPresets] = useState<WledPreset[]>(initialWledPresets);
+  const [wledTableReady, setWledTableReady] = useState(initialWledTableReady);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [hasApiKey, setHasApiKey] = useState(initialHasApiKey);
   const [maskedApiKey, setMaskedApiKey] = useState<string | null>(initialMaskedApiKey);
@@ -138,18 +150,26 @@ export default function DashboardClient({
 
   const refreshData = useCallback(async () => {
     const supabase = createClient();
-    const [{ data: r }, { data: c }, { data: d }, presetsRes] = await Promise.all([
-      supabase.from('rooms').select('*').eq('user_id', userId).order('name'),
-      supabase.from('controllers').select('*').eq('user_id', userId).order('name'),
-      supabase.from('devices').select('*').eq('user_id', userId).order('name'),
-      supabase.from('presets').select('*').eq('user_id', userId).order('name'),
-    ]);
+    const [{ data: r }, { data: c }, { data: d }, presetsRes, wledRes, wledPresetsRes] =
+      await Promise.all([
+        supabase.from('rooms').select('*').eq('user_id', userId).order('name'),
+        supabase.from('controllers').select('*').eq('user_id', userId).order('name'),
+        supabase.from('devices').select('*').eq('user_id', userId).order('name'),
+        supabase.from('presets').select('*').eq('user_id', userId).order('name'),
+        supabase.from('wled_devices').select('*').eq('user_id', userId).order('name'),
+        supabase.from('wled_presets').select('*').eq('user_id', userId).order('name'),
+      ]);
     if (r) setRooms(r);
     if (c) setControllers(c);
     if (d) setDevices(d);
     if (!presetsRes.error) {
       setPresetsTableReady(true);
       if (presetsRes.data) setPresets(presetsRes.data);
+    }
+    if (!wledRes.error && !wledPresetsRes.error) {
+      setWledTableReady(true);
+      if (wledRes.data) setWledDevices(wledRes.data);
+      if (wledPresetsRes.data) setWledPresets(wledPresetsRes.data);
     }
   }, [userId]);
 
@@ -190,6 +210,30 @@ export default function DashboardClient({
           void refreshData();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'wled_devices',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void refreshData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'wled_presets',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void refreshData();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -209,8 +253,10 @@ export default function DashboardClient({
       ...rooms.map((r) => r.name),
       ...devices.flatMap((d) => [d.name, d.aliases].filter(Boolean)),
       ...presets.flatMap((p) => [p.name, p.keywords].filter(Boolean)),
+      ...wledDevices.flatMap((w) => [w.name, w.aliases].filter(Boolean)),
+      ...wledPresets.flatMap((wp) => [wp.name, wp.keywords].filter(Boolean)),
     ],
-    [rooms, devices, presets]
+    [rooms, devices, presets, wledDevices, wledPresets]
   );
 
   async function handleLogout() {
@@ -252,13 +298,13 @@ export default function DashboardClient({
 
           <nav
             aria-label="Menu utama"
-            className="grid w-full grid-cols-4 gap-1 border-t border-slate-800/80 pt-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:border-t-0 sm:pt-0"
+            className="grid w-full grid-cols-5 gap-1 border-t border-slate-800/80 pt-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:border-t-0 sm:pt-0"
           >
             <button
               type="button"
               onClick={() => setActiveTab('assistant')}
               aria-current={activeTab === 'assistant' ? 'page' : undefined}
-              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
+              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'assistant'
                   ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : 'text-slate-300 hover:bg-slate-800'
@@ -273,9 +319,26 @@ export default function DashboardClient({
 
             <button
               type="button"
+              onClick={() => setActiveTab('wled')}
+              aria-current={activeTab === 'wled' ? 'page' : undefined}
+              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
+                activeTab === 'wled'
+                  ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
+                  : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Palette className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">WLED ({wledDevices.length})</span>
+              <span aria-hidden="true" className="max-w-full truncate sm:hidden">
+                WLED
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('rooms')}
               aria-current={activeTab === 'rooms' ? 'page' : undefined}
-              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
+              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'rooms'
                   ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : 'text-slate-300 hover:bg-slate-800'
@@ -292,7 +355,7 @@ export default function DashboardClient({
               type="button"
               onClick={() => setActiveTab('controllers')}
               aria-current={activeTab === 'controllers' ? 'page' : undefined}
-              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
+              className={`inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'controllers'
                   ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : 'text-slate-300 hover:bg-slate-800'
@@ -309,7 +372,7 @@ export default function DashboardClient({
               type="button"
               onClick={() => setActiveTab('settings')}
               aria-current={activeTab === 'settings' ? 'page' : undefined}
-              className={`relative inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
+              className={`relative inline-flex min-h-[40px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition sm:min-h-[34px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                 activeTab === 'settings'
                   ? 'bg-emerald-500 font-semibold text-slate-950 ring-1 ring-emerald-400'
                   : hasApiKey
@@ -377,6 +440,17 @@ export default function DashboardClient({
               />
             </div>
           </div>
+        )}
+
+        {activeTab === 'wled' && (
+          <WledManager
+            userId={userId}
+            rooms={rooms}
+            wledDevices={wledDevices}
+            wledPresets={wledPresets}
+            tableReady={wledTableReady}
+            onChanged={refreshData}
+          />
         )}
 
         {activeTab === 'rooms' && (
