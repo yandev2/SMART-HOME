@@ -1,12 +1,12 @@
 # Desain PCB Smart Switch — NodeMCU V3 LoLin + 4-Channel Relay (Single-Layer / Komponen Besar)
 
-Paket desain PCB **1-Layer (`B.Cu` / Bottom Copper ONLY, `162 mm × 116 mm`)** dengan ukuran komponen **through-hole standar besar (gaya amplifier/audio)** siap cetak rumahan (sablon/setrika FeCl3, CNC) maupun pabrik, dan siap di-import langsung ke **EasyEDA** untuk **NodeMCU V3 LoLin (`30 pin`, lebar baris `27.94 mm / 1.1"`)**, **4× Relay 5V (`SRD-05VDC-SL-C`)**, serta suplai **5V DC dari adaptor charger HP**.
+Paket desain PCB **1-Layer (`B.Cu` / Bottom Copper ONLY, `149 mm × 116 mm`)** dengan ukuran komponen **through-hole standar besar (gaya amplifier/audio)** siap cetak rumahan (sablon/setrika FeCl3, CNC) maupun pabrik, dan siap di-import langsung ke **EasyEDA** untuk **NodeMCU V3 LoLin (`30 pin`, lebar baris `27.94 mm / 1.1"`)**, **4× Relay 5V (`SRD-05VDC-SL-C`)**, **Terminal 4× Push Button Manual (`J6` — kontrol offline & sinkron dua arah)**, serta suplai **5V DC dari adaptor charger HP**.
 
 ---
 
 ## 1. File di Folder Ini
 - **[nodemcu_v3_4ch_relay_easyeda.zip](nodemcu_v3_4ch_relay_easyeda.zip)** → File utama untuk di-import ke EasyEDA.
-- **[nodemcu_v3_4ch_relay.kicad_pcb](nodemcu_v3_4ch_relay.kicad_pcb)** → Source PCB format KiCad v5 (`version 20171130`), **100% Single-Layer (`0` jalur di `F.Cu`, `164` jalur di `B.Cu`)**, `49` modul, `150` pad, `45` net, plus copper pour `GND` di sisi kiri DC.
+- **[nodemcu_v3_4ch_relay.kicad_pcb](nodemcu_v3_4ch_relay.kicad_pcb)** → Source PCB format KiCad v5 (`version 20171130`), **100% Single-Layer (`0` jalur di `F.Cu`, `197` jalur di `B.Cu`)**, `62` modul, `175` pad, `54` net, plus copper pour `GND` di sisi kiri DC.
 
 ---
 
@@ -38,12 +38,21 @@ Paket desain PCB **1-Layer (`B.Cu` / Bottom Copper ONLY, `162 mm × 116 mm`)** d
 
 > **Orientasi Pemasangan `U1` (NodeMCU V3 LoLin)**: Antena PCB menghadap ke **ATAS**, port Micro-USB menghadap ke **BAWAH**.
 
-| Channel | Pin NodeMCU | GPIO Firmware | Driver | Relay & Terminal | Setting di Web Dashboard |
-| :---: | :---: | :---: | :--- | :--- | :--- |
-| **CH 1** | `D1` (Pin 4) | `GPIO 5` | `U2 (PC817)` + `Q1 (S8050)` | `K1` → `J2 (NC, COM, NO)` | Pin `D1 (GPIO 5)`, `Active LOW = Aktif` |
-| **CH 2** | `D2` (Pin 5) | `GPIO 4` | `U3 (PC817)` + `Q2 (S8050)` | `K2` → `J3 (NC, COM, NO)` | Pin `D2 (GPIO 4)`, `Active LOW = Aktif` |
-| **CH 3** | `D5` (Pin 10) | `GPIO 14` | `U4 (PC817)` + `Q3 (S8050)` | `K3` → `J4 (NC, COM, NO)` | Pin `D5 (GPIO 14)`, `Active LOW = Aktif` |
-| **CH 4** | `D6` (Pin 11) | `GPIO 12` | `U5 (PC817)` + `Q4 (S8050)` | `K4` → `J5 (NC, COM, NO)` | Pin `D6 (GPIO 12)`, `Active LOW = Aktif` |
+| Channel | Pin Relay | GPIO Relay | Pin Push Button (`J6`) | Driver | Relay & Terminal | Setting di Web Dashboard |
+| :---: | :---: | :---: | :---: | :--- | :--- | :--- |
+| **CH 1** | `D1` (Pin 4) | `GPIO 5` | `D7 (GPIO 13)` → `J6 Pin 2` | `U2 (PC817)` + `Q1 (S8050)` | `K1` → `J2 (NC, COM, NO)` | Pin `D1 (GPIO 5)`, `Active LOW = Aktif` |
+| **CH 2** | `D2` (Pin 5) | `GPIO 4` | `D4 (GPIO 2)` → `J6 Pin 3` | `U3 (PC817)` + `Q2 (S8050)` | `K2` → `J3 (NC, COM, NO)` | Pin `D2 (GPIO 4)`, `Active LOW = Aktif` |
+| **CH 3** | `D5` (Pin 10) | `GPIO 14` | `D3 (GPIO 0)` → `J6 Pin 4` | `U4 (PC817)` + `Q3 (S8050)` | `K3` → `J4 (NC, COM, NO)` | Pin `D5 (GPIO 14)`, `Active LOW = Aktif` |
+| **CH 4** | `D6` (Pin 11) | `GPIO 12` | `D0 (GPIO 16)` → `J6 Pin 5` | `U5 (PC817)` + `Q4 (S8050)` | `K4` → `J5 (NC, COM, NO)` | Pin `D6 (GPIO 12)`, `Active LOW = Aktif` |
+
+> **Wiring Terminal Push Button (`J6` — 5-Pin `P5.08mm` di kiri bawah PCB)**:
+> - `J6 Pin 1` = **`GND`** *(kabel ground bersama untuk semua 4 tombol)*
+> - `J6 Pin 2` = **`BTN 1`** (terhubung ke saklar momentary/push button 1 ↔ `GND`)
+> - `J6 Pin 3` = **`BTN 2`** (terhubung ke saklar momentary/push button 2 ↔ `GND`)
+> - `J6 Pin 4` = **`BTN 3`** (terhubung ke saklar momentary/push button 3 ↔ `GND`)
+> - `J6 Pin 5` = **`BTN 4`** (terhubung ke saklar momentary/push button 4 ↔ `GND`)
+> - Gunakan saklar tipe **Push Button / Momentary (Bell Switch)**, **1× tekan = ON, 1× tekan = OFF**. Jangan sambungkan listrik 220V AC ke `J6`!
+> - Ke-4 tombol tetap bekerja normal saat **Wi-Fi mati**, dan otomatis tersinkron ke Web/AI begitu Wi-Fi pulih. Tahan **`BTN 1 + BTN 2` selama 5 detik** untuk masuk Mode Portal Setup Wi-Fi kapan saja.
 
 ---
 
@@ -52,10 +61,10 @@ Karena menggunakan 1-layer murni, terdapat **7 kawat jumper lurus horizontal** d
 
 | Ref | Pitch | Keterangan Jalur |
 | :--- | :---: | :--- |
-| `JMP1` | `26.67 mm` | Jembatan sinyal `GPIO 4 (D2 → CH2)` melompati jalur `5V_SYS`, `3V3`, dan `GPIO5_R` |
-| `JMP2` | `22.86 mm` | Jembatan sinyal `GPIO 5 (D1 → CH1)` melompati jalur `5V_SYS` dan `3V3` |
+| `JMP1` | `17.78 mm` | Jembatan sinyal `GPIO 4 (D2 → CH2)` melompati jalur `5V_SYS`, `3V3`, dan `GPIO5_R` |
+| `JMP2` | `15.24 mm` | Jembatan sinyal `GPIO 5 (D1 → CH1)` melompati jalur `5V_SYS` dan `3V3` |
 | `JMP3` | `10.16 mm` | Jembatan sinyal `GPIO 12 (D6 → CH4)` melompati jalur `GND` |
-| `JMP4` | `19.05 mm` | Jembatan sinyal `GPIO 14 (D5 → CH3)` melompati jalur `GND` dan `GPIO12_R` |
+| `JMP4` | `16.51 mm` | Jembatan sinyal `GPIO 14 (D5 → CH3)` melompati jalur `GND` dan `GPIO12_R` |
 | `JMP5` | `10.16 mm` | Jembatan suplai `+5V` ke koil & flyback **CH 2 (`K2`)** melompati tulang `GND` |
 | `JMP6` | `10.16 mm` | Jembatan suplai `+5V` ke koil & flyback **CH 3 (`K3`)** melompati tulang `GND` |
 | `JMP7` | `10.16 mm` | Jembatan suplai `+5V` ke koil & flyback **CH 4 (`K4`)** melompati tulang `GND` |
@@ -74,6 +83,10 @@ Karena menggunakan 1-layer murni, terdapat **7 kawat jumper lurus horizontal** d
 | `D1` | Dioda `1N5819` atau `1N4007` (`DO-41`) | `10.16 mm` | 1 | Pengaman polaritas terbalik (`1=Katoda [kotak]`, `2=Anoda`) |
 | `C1` | Elco `1000µF / 16V` | `Ø10 mm, P 5.0 mm` | 1 | Menahan lonjakan arus saat 4 relay aktif bersamaan (`1=+ [kotak]`, `2=-`) |
 | `C2` | Kapasitor MKT / Keramik `100nF (104)` | `P 5.0 mm` | 1 | Filter noise jalur 5V |
+| `J6` | Screw Terminal `5-Pin` (KF301/MKDS) | `P 5.08 mm` | 1 | Terminal 4× Push Button (`1=GND`, `2=BTN1`, `3=BTN2`, `4=BTN3`, `5=BTN4`) |
+| `R13–R16` | Resistor `1kΩ` 1/4W–1/2W (dipasang tegak / bridge) | `P 12.2 mm` | 4 | Proteksi ESD & jembatan sinyal `BTN1–BTN4` dari bawah NodeMCU ke `J6` |
+| `R17–R20` | Resistor `4.7kΩ` 1/4W–1/2W | `P 10.16 mm` | 4 | Pull-up eksternal ke `3V3` di bawah area `U1` (wajib agar `D0/D3/D4/D7` stabil `HIGH` saat boot) |
+| `C3–C6` | Kapasitor MKT / Keramik `100nF (104)` | `P 5.0 mm` | 4 | Filter anti-bounce & peredam interferensi kabel saklar dinding ke `GND` |
 | `U2–U5` | Optocoupler `PC817` (`DIP-4`) | `7.62 × 2.54 mm` | 4 | Isolasi `3.3V` NodeMCU dari driver `5V` |
 | `Q1–Q4` | Transistor NPN `S8050` / `BC547` (`TO-92`) | `P 2.54 mm` inline | 4 | **Cek pinout**: susunan kaki pada PCB `Pin 1 = E (bawah/GND)`, `Pin 2 = B (tengah)`, `Pin 3 = C (atas/Koil-)` *(cocok langsung untuk `S8050` sisi datar menghadap kanan; jika pakai `2N2222`/`BC547`, sesuaikan kaki E-B-C saat menekuk!)* |
 | `D2–D5` | Dioda Flyback `1N4007` (`DO-41`) | `10.16 mm` | 4 | Dipasang paralel terbalik pada koil relay (`1=Katoda [+5V]`, `2=Anoda [Koil-]`) |
@@ -82,7 +95,7 @@ Karena menggunakan 1-layer murni, terdapat **7 kawat jumper lurus horizontal** d
 | `R3, R6, R9, R12` | Resistor `10kΩ` 1/4W–1/2W | `10.16 mm` | 4 | Pull-down basis `Q1–Q4` |
 | `K1–K4` | Relay 5V 10A SPDT (`SRD-05VDC-SL-C`) | Standar Songle | 4 | Beban AC 220V terpisah di sisi kanan PCB |
 | `J2–J5` | Screw Terminal `3-Pin` (KF301) | `5.08 mm` | 4 | Output AC 220V (`1=NC [atas]`, `2=COM [tengah]`, `3=NO [bawah]`) |
-| `JMP1–JMP7` | Kawat Jumper / Resistor `0Ω` | `10.16 – 26.67 mm` | 7 | Disolder di sisi atas PCB |
+| `JMP1–JMP7` | Kawat Jumper / Resistor `0Ω` | `10.16 – 17.78 mm` | 7 | Disolder di sisi atas PCB |
 | `H1–H4` | Lubang Baut `M3` | `Ø3.2 mm` | 4 | Di keempat sudut PCB |
 
 ---

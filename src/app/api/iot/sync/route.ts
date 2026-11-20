@@ -1,6 +1,42 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+interface PinUpdateInput {
+  pin: number;
+  on: boolean;
+}
+
+function parsePinUpdates(rawBody: string): PinUpdateInput[] {
+  const trimmed = rawBody.trim();
+  if (!trimmed) return [];
+
+  try {
+    const parsed = JSON.parse(trimmed) as { updates?: unknown };
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.updates)) {
+      return [];
+    }
+
+    const deduped = new Map<number, boolean>();
+    for (const item of parsed.updates.slice(0, 16)) {
+      if (!item || typeof item !== 'object') continue;
+      const candidate = item as { pin?: unknown; on?: unknown };
+      if (
+        typeof candidate.pin === 'number' &&
+        Number.isInteger(candidate.pin) &&
+        candidate.pin >= 0 &&
+        candidate.pin <= 16 &&
+        typeof candidate.on === 'boolean'
+      ) {
+        deduped.set(candidate.pin, candidate.on);
+      }
+    }
+
+    return Array.from(deduped.entries()).map(([pin, on]) => ({ pin, on }));
+  } catch {
+    return [];
+  }
+}
+
 async function handleSync(request: Request) {
   try {
     const url = new URL(request.url);
@@ -14,6 +50,9 @@ async function handleSync(request: Request) {
         { status: 401 }
       );
     }
+
+    const updates =
+      request.method === 'POST' ? parsePinUpdates(await request.text()) : [];
 
     const supabase = createAdminClient();
 
@@ -31,7 +70,28 @@ async function handleSync(request: Request) {
       );
     }
 
-    // Perbarui last_seen dan ambil daftar pin relay untuk controller ini
+    // Terapkan update status fisik dari NodeMCU (saklar manual / push button) terlebih dahulu
+    if (updates.length > 0) {
+      const updateResults = await Promise.all(
+        updates.map((item) =>
+          supabase
+            .from('devices')
+            .update({ is_on: item.on })
+            .eq('controller_id', controller.id)
+            .eq('gpio_pin', item.pin)
+        )
+      );
+
+      const failed = updateResults.find((res) => res.error);
+      if (failed?.error) {
+        return NextResponse.json(
+          { ok: false, error: 'Failed to apply device updates' },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Perbarui last_seen dan ambil daftar pin relay terbaru untuk controller ini
     const [, { data: devices, error: devError }] = await Promise.all([
       supabase
         .from('controllers')
