@@ -99,7 +99,7 @@ export default function MeshAvatarCanvas({
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const rectSize = Math.max(128, Math.round(canvas.clientWidth || 160));
-    const renderSize = Math.min(360, Math.round(rectSize * dpr));
+    const renderSize = Math.min(440, Math.round(rectSize * dpr));
     if (canvas.width !== renderSize || canvas.height !== renderSize) {
       canvas.width = renderSize;
       canvas.height = renderSize;

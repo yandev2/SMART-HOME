@@ -50,7 +50,7 @@ export default function AssistantAvatar({
 
     return (
       <div
-        className="relative flex h-36 w-36 shrink-0 items-center justify-center sm:h-40 sm:w-40"
+        className="relative flex h-[min(60vw,36dvh,15rem)] w-[min(60vw,36dvh,15rem)] shrink-0 items-center justify-center sm:h-40 sm:w-40"
         aria-hidden="true"
       >
         <div
@@ -58,7 +58,7 @@ export default function AssistantAvatar({
           className={`pointer-events-none absolute inset-0 rounded-full border transition-transform duration-75 ${outerRingClass}`}
         />
         <div
-          className={`relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full transition sm:h-32 sm:w-32 ${innerCardClass}`}
+          className={`relative flex h-[85%] w-[85%] items-center justify-center overflow-hidden rounded-full transition sm:h-32 sm:w-32 ${innerCardClass}`}
         >
           {useCustom && customAvatar ? (
             <MeshAvatarCanvas
@@ -73,7 +73,7 @@ export default function AssistantAvatar({
           ) : (
             <svg
               viewBox="0 0 40 40"
-              className="h-24 w-24 sm:h-28 sm:w-28"
+              className="h-[85%] w-[85%] sm:h-28 sm:w-28"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
