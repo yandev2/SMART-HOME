@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  type FaceMeshModel,
-  buildFaceMesh,
-  renderAnimatedFaceMesh,
+  type SampledFaceAppearance,
+  analyzeFaceAppearance,
+  renderAnimatedFaceCanvas,
 } from '@/lib/faceMesh2d';
 import type { AvatarRig } from '@/lib/types';
 
@@ -29,18 +29,15 @@ export default function MeshAvatarCanvas({
 }: MeshAvatarCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const appearanceRef = useRef<SampledFaceAppearance | null>(null);
   const [imageReady, setImageReady] = useState(false);
 
-  // Ref agar loop requestAnimationFrame selalu membaca state terbaru tanpa restart loop
   const targetMouthRef = useRef(0);
   const smoothMouthRef = useRef(0);
   const isSpeakingRef = useRef(isSpeaking);
   const isListeningRef = useRef(isListening);
   const isThinkingRef = useRef(isThinking);
   const rigRef = useRef(rig);
-
-  const mesh = useMemo<FaceMeshModel>(() => buildFaceMesh(rig), [rig]);
-  const meshRef = useRef<FaceMeshModel>(mesh);
 
   useEffect(() => {
     targetMouthRef.current = Math.min(1, Math.max(0, mouthLevel));
@@ -60,8 +57,10 @@ export default function MeshAvatarCanvas({
 
   useEffect(() => {
     rigRef.current = rig;
-    meshRef.current = mesh;
-  }, [rig, mesh]);
+    if (imgRef.current && imageReady) {
+      appearanceRef.current = analyzeFaceAppearance(imgRef.current, rig);
+    }
+  }, [rig, imageReady]);
 
   useEffect(() => {
     let active = true;
@@ -70,11 +69,13 @@ export default function MeshAvatarCanvas({
     img.onload = () => {
       if (!active) return;
       imgRef.current = img;
+      appearanceRef.current = analyzeFaceAppearance(img, rigRef.current);
       setImageReady(true);
     };
     img.onerror = () => {
       if (!active) return;
       imgRef.current = null;
+      appearanceRef.current = null;
       setImageReady(false);
     };
     img.src = imageDataUrl;
@@ -86,7 +87,8 @@ export default function MeshAvatarCanvas({
   useEffect(() => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
-    if (!canvas || !img || !imageReady) return;
+    const appearance = appearanceRef.current;
+    if (!canvas || !img || !appearance || !imageReady) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -97,19 +99,18 @@ export default function MeshAvatarCanvas({
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const rectSize = Math.max(128, Math.round(canvas.clientWidth || 160));
-    const renderSize = Math.min(340, Math.round(rectSize * dpr));
+    const renderSize = Math.min(360, Math.round(rectSize * dpr));
     if (canvas.width !== renderSize || canvas.height !== renderSize) {
       canvas.width = renderSize;
       canvas.height = renderSize;
     }
 
-    // Jika pengguna memilih Reduce Motion, gambar 1 frame diam yang bersih
     if (prefersReducedMotion) {
-      renderAnimatedFaceMesh(
+      renderAnimatedFaceCanvas(
         ctx,
         img,
-        meshRef.current,
         rigRef.current,
+        appearance,
         {
           timeSec: 0,
           mouthOpen: 0,
@@ -131,9 +132,8 @@ export default function MeshAvatarCanvas({
 
     const loop = (nowMs: number) => {
       const target = targetMouthRef.current;
-      smoothMouthRef.current += (target - smoothMouthRef.current) * 0.42;
+      smoothMouthRef.current += (target - smoothMouthRef.current) * 0.44;
 
-      // Jadwalkan kedipan mata alami setiap 2.6 - 5.2 detik
       let blink = 0;
       if (blinkStartMs === 0 && nowMs >= nextBlinkMs) {
         blinkStartMs = nowMs;
@@ -150,11 +150,11 @@ export default function MeshAvatarCanvas({
         }
       }
 
-      renderAnimatedFaceMesh(
+      renderAnimatedFaceCanvas(
         ctx,
         img,
-        meshRef.current,
         rigRef.current,
+        appearanceRef.current ?? appearance,
         {
           timeSec: (nowMs - startMs) / 1000,
           mouthOpen: smoothMouthRef.current,

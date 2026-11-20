@@ -8,12 +8,14 @@ import {
   Play,
   RotateCcw,
   Save,
+  Sparkles,
   Square,
   Upload,
   UserCircle2,
 } from 'lucide-react';
 import { DEFAULT_AVATAR_RIG } from '@/lib/constants';
 import {
+  analyzeFaceAppearance,
   compressAvatarSourceToDataUrl,
   readFileAsDataUrl,
 } from '@/lib/faceMesh2d';
@@ -162,7 +164,7 @@ export default function AvatarCustomizer({
       setImageUrlInput('');
       setFeedback({
         type: 'success',
-        text: 'Gambar dari URL berhasil diambil! Sesuaikan 4 pin wajah lalu klik Simulasi.',
+        text: 'Gambar dari URL berhasil diambil! Sesuaikan pin lalu klik Simulasi Bicara.',
       });
     } catch (err) {
       setFeedback({
@@ -172,6 +174,27 @@ export default function AvatarCustomizer({
     } finally {
       setFetchingUrl(false);
     }
+  }
+
+  function handleAutoSnapMouth() {
+    if (!imageDataUrl) return;
+    const img = new Image();
+    img.onload = () => {
+      const detected = analyzeFaceAppearance(img, rig);
+      setRig((prev) => ({
+        ...prev,
+        mouth: {
+          ...prev.mouth,
+          y: Number(detected.detectedMouthY.toFixed(3)),
+        },
+      }));
+      setLiveStatusText('Posisi bibir disesuaikan otomatis');
+      setFeedback({
+        type: 'success',
+        text: 'Pin Mulut (M) otomatis diarahkan tepat ke garis bibir terdeteksi!',
+      });
+    };
+    img.src = imageDataUrl;
   }
 
   function updatePinPosition(pin: PinKey, nx: number, ny: number) {
@@ -577,7 +600,7 @@ export default function AvatarCustomizer({
                           className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-rose-400/80 bg-rose-400/15"
                         />
 
-                        {/* 4 Handle Draggable + Keyboard Focusable */}
+                        {/* 4 Handle Crosshair Transparan + Focusable agar wajah tetap terlihat jelas */}
                         <button
                           type="button"
                           onPointerDown={(e) => handlePinPointerDown('leftEye', e)}
@@ -593,11 +616,14 @@ export default function AvatarCustomizer({
                             WebkitUserSelect: 'none',
                             userSelect: 'none',
                           }}
-                          className={`absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-sky-500 text-[9px] font-bold text-slate-950 shadow-md ${
+                          className={`group absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-sky-400 bg-sky-400/10 ${
                             draggingPin === 'leftEye' ? 'cursor-grabbing scale-110' : 'cursor-grab'
                           }`}
                         >
-                          L
+                          <span className="h-1.5 w-1.5 rounded-full bg-sky-300 shadow" />
+                          <span className="pointer-events-none absolute -top-4 rounded bg-sky-500 px-1 text-[8px] font-bold text-slate-950">
+                            L
+                          </span>
                         </button>
 
                         <button
@@ -615,11 +641,14 @@ export default function AvatarCustomizer({
                             WebkitUserSelect: 'none',
                             userSelect: 'none',
                           }}
-                          className={`absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-emerald-400 text-[9px] font-bold text-slate-950 shadow-md ${
+                          className={`group absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-emerald-400 bg-emerald-400/10 ${
                             draggingPin === 'rightEye' ? 'cursor-grabbing scale-110' : 'cursor-grab'
                           }`}
                         >
-                          R
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow" />
+                          <span className="pointer-events-none absolute -top-4 rounded bg-emerald-400 px-1 text-[8px] font-bold text-slate-950">
+                            R
+                          </span>
                         </button>
 
                         <button
@@ -637,11 +666,14 @@ export default function AvatarCustomizer({
                             WebkitUserSelect: 'none',
                             userSelect: 'none',
                           }}
-                          className={`absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-rose-500 text-[9px] font-bold text-white shadow-md ${
+                          className={`group absolute flex h-7 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-rose-400 bg-rose-500/5 ${
                             draggingPin === 'mouth' ? 'cursor-grabbing scale-110' : 'cursor-grab'
                           }`}
                         >
-                          M
+                          <span className="h-1 w-4 rounded-full bg-rose-400/80 shadow" />
+                          <span className="pointer-events-none absolute -bottom-4 rounded bg-rose-500 px-1 text-[8px] font-bold text-white">
+                            M
+                          </span>
                         </button>
 
                         <button
@@ -659,7 +691,7 @@ export default function AvatarCustomizer({
                             WebkitUserSelect: 'none',
                             userSelect: 'none',
                           }}
-                          className={`absolute flex h-6 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-amber-400 text-[9px] font-bold text-slate-950 shadow-md ${
+                          className={`absolute flex h-6 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-amber-400 text-[9px] font-bold text-slate-950 shadow-md ${
                             draggingPin === 'neckY' ? 'cursor-grabbing scale-110' : 'cursor-grab'
                           }`}
                         >
@@ -767,14 +799,25 @@ export default function AvatarCustomizer({
             )}
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setRig(DEFAULT_AVATAR_RIG)}
-                className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800"
-              >
-                <RotateCcw className="h-3 w-3" aria-hidden="true" />
-                Reset Pin
-              </button>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setRig(DEFAULT_AVATAR_RIG)}
+                  className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800"
+                >
+                  <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                  Reset Pin
+                </button>
+                <button
+                  type="button"
+                  disabled={simulating || !imageDataUrl}
+                  onClick={handleAutoSnapMouth}
+                  className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-xs font-medium text-rose-200 hover:bg-rose-500/20 disabled:opacity-50"
+                >
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                  Pas-kan Bibir Otomatis
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -796,3 +839,4 @@ export default function AvatarCustomizer({
     </section>
   );
 }
+
