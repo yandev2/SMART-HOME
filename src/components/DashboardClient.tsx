@@ -347,7 +347,7 @@ export default function DashboardClient({
       <main className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4 sm:py-4">
         {activeTab === 'assistant' && (
           <div className="grid items-start gap-4 lg:grid-cols-12">
-            <div className="min-w-0 lg:col-span-6">
+            <div className="min-w-0 lg:sticky lg:top-[5rem] lg:col-span-6">
               <ChatAssistant
                 messages={messages}
                 assistantProfile={assistantProfile}

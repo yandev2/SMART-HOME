@@ -103,6 +103,8 @@ export default function ChatAssistant({
   const [lastVoiceActions, setLastVoiceActions] = useState<ActionLog[]>([]);
   const isListening = micPhase !== 'idle';
 
+  const sectionRef = useRef<HTMLElement>(null);
+  const [cardHeightPx, setCardHeightPx] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const voicePlayerRef = useRef<SmartHomeVoicePlayer | null>(null);
   const modeRef = useRef<InteractionMode>('chat');
@@ -150,6 +152,42 @@ export default function ChatAssistant({
       cancelledSpeechRef.current = true;
       voicePlayerRef.current?.stop();
       recognitionRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateCardHeight = () => {
+      const el = sectionRef.current;
+      if (!el) return;
+
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const vw = window.innerWidth;
+      const rect = el.getBoundingClientRect();
+      const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+      const isSmUp = vw >= 640;
+      const sideGap = isSmUp ? 16 : 12;
+      const anchorTop = Math.max(rect.top, headerBottom + sideGap);
+      const nextHeight = Math.max(320, Math.floor(vh - anchorTop - sideGap));
+
+      setCardHeightPx((prev) => (prev === nextHeight ? prev : nextHeight));
+    };
+
+    const rafId = window.requestAnimationFrame(updateCardHeight);
+    window.addEventListener('resize', updateCardHeight);
+    window.visualViewport?.addEventListener('resize', updateCardHeight);
+
+    const headerEl = document.querySelector('header');
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateCardHeight) : null;
+    if (headerEl && resizeObserver) {
+      resizeObserver.observe(headerEl);
+    }
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', updateCardHeight);
+      window.visualViewport?.removeEventListener('resize', updateCardHeight);
+      resizeObserver?.disconnect();
     };
   }, []);
 
@@ -601,8 +639,10 @@ export default function ChatAssistant({
 
   return (
     <section
+      ref={sectionRef}
       aria-labelledby="chat-heading"
-      className="flex h-[52dvh] min-h-[360px] max-h-[460px] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 sm:h-[calc(100dvh-7.5rem)] sm:max-h-[560px]"
+      style={cardHeightPx !== null ? { height: `${cardHeightPx}px` } : undefined}
+      className="flex h-[calc(100dvh-8.25rem)] min-h-[320px] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 sm:h-[calc(100dvh-5.75rem)]"
     >
       {/* Header Asisten + Switch Mode (Chat | Voice) */}
       <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2 sm:px-3.5">
@@ -836,7 +876,7 @@ export default function ChatAssistant({
         </>
       ) : (
         /* ==================== MODE VOICE (AVATAR BESAR + GELOMBANG + MIC) ==================== */
-        <div className="relative flex flex-1 flex-col items-center justify-between overflow-y-auto px-4 py-4 text-center">
+        <div className="relative flex flex-1 flex-col items-center justify-between overflow-y-auto px-4 py-3 text-center">
           {/* Bar Status Atas */}
           <div className="flex w-full flex-col items-center gap-2">
             {!hasApiKey ? (
@@ -876,7 +916,7 @@ export default function ChatAssistant({
           </div>
 
           {/* Panggung Tengah: Avatar Besar + Gelombang Audio + Caption/Aksi Ringkas */}
-          <div className="my-auto flex w-full max-w-sm flex-col items-center gap-3 py-2">
+          <div className="my-auto flex w-full max-w-sm flex-col items-center gap-2.5 py-1">
             <AssistantAvatar
               gender={assistantProfile.gender}
               mouthLevel={mouthLevel}
