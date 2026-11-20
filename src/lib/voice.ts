@@ -163,10 +163,20 @@ interface QueuedAudioItem {
   audioPromise: Promise<DecodedAudioResult | null>;
 }
 
+interface ActivePcmStreamGraph {
+  runId: number;
+  inputNode: AudioNode;
+  analyser: AnalyserNode;
+  sources: Set<AudioBufferSourceNode>;
+  nextStartTime: number;
+  streamCompleted: boolean;
+}
+
 export class SmartHomeVoicePlayer {
   private audioContext: AudioContext | null = null;
   private activeSource: AudioBufferSourceNode | null = null;
   private rafId: number | null = null;
+  private pcmGraph: ActivePcmStreamGraph | null = null;
   private abortController: AbortController | null = null;
   private activeRunId = 0;
   private queue: QueuedAudioItem[] = [];
@@ -226,6 +236,25 @@ export class SmartHomeVoicePlayer {
       this.activeSource = null;
     }
 
+    if (this.pcmGraph) {
+      for (const src of this.pcmGraph.sources) {
+        try {
+          src.onended = null;
+          src.stop();
+          src.disconnect();
+        } catch {
+          // Abaikan
+        }
+      }
+      this.pcmGraph.sources.clear();
+      try {
+        this.pcmGraph.analyser.disconnect();
+      } catch {
+        // Abaikan
+      }
+      this.pcmGraph = null;
+    }
+
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -233,6 +262,229 @@ export class SmartHomeVoicePlayer {
     onMouthLevel?.(0);
     onWaveBins?.([]);
     onSpeakingChange?.(false);
+  }
+
+  private ensurePcmGraph(
+    runId: number,
+    warmEq: boolean,
+    onMouthLevel: (level: number) => void,
+    onSpeakingChange: (speaking: boolean) => void,
+    onEngineUsed?: (engine: ActiveVoiceEngine) => void,
+    onWaveBins?: (bins: number[]) => void
+  ): ActivePcmStreamGraph {
+    if (this.pcmGraph && this.pcmGraph.runId === runId) {
+      return this.pcmGraph;
+    }
+
+    const ctx = this.ensureAudioContext();
+    if (ctx.state === 'suspended') {
+      void ctx.resume();
+    }
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.65;
+
+    let inputNode: AudioNode = analyser;
+
+    if (warmEq) {
+      const lowWarmth = ctx.createBiquadFilter();
+      lowWarmth.type = 'lowshelf';
+      lowWarmth.frequency.value = 180;
+      lowWarmth.gain.value = 3.5;
+
+      const deHarsh = ctx.createBiquadFilter();
+      deHarsh.type = 'peaking';
+      deHarsh.frequency.value = 3200;
+      deHarsh.Q.value = 1.2;
+      deHarsh.gain.value = -2.5;
+
+      const airSilk = ctx.createBiquadFilter();
+      airSilk.type = 'highshelf';
+      airSilk.frequency.value = 7500;
+      airSilk.gain.value = 2.0;
+
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -18;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 3;
+      compressor.attack.value = 0.005;
+      compressor.release.value = 0.15;
+
+      lowWarmth.connect(deHarsh);
+      deHarsh.connect(airSilk);
+      airSilk.connect(compressor);
+      compressor.connect(analyser);
+      inputNode = lowWarmth;
+    }
+
+    analyser.connect(ctx.destination);
+
+    const graph: ActivePcmStreamGraph = {
+      runId,
+      inputNode,
+      analyser,
+      sources: new Set(),
+      nextStartTime: 0,
+      streamCompleted: false,
+    };
+    this.pcmGraph = graph;
+
+    onEngineUsed?.('gemini-tts');
+    onSpeakingChange(true);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const freqArray = onWaveBins ? new Uint8Array(analyser.frequencyBinCount) : null;
+
+    const tick = () => {
+      if (this.activeRunId !== runId || this.pcmGraph !== graph) return;
+      analyser.getByteTimeDomainData(dataArray);
+      let sumSq = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const normalized = (dataArray[i] - 128) / 128;
+        sumSq += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSq / dataArray.length);
+      const level = Math.min(1, Math.max(0, rms * 4.2));
+      onMouthLevel(level);
+
+      if (onWaveBins && freqArray) {
+        analyser.getByteFrequencyData(freqArray);
+        const bands: number[] = [];
+        for (let b = 0; b < VOICE_WAVE_BANDS; b++) {
+          const binStart = 1 + b * 2;
+          const binEnd = Math.min(freqArray.length - 1, binStart + 1);
+          const avg = (freqArray[binStart] + freqArray[binEnd]) / (2 * 255);
+          bands.push(Math.min(1, Math.pow(avg, 0.85) * 1.25));
+        }
+        onWaveBins(bands);
+      }
+
+      this.rafId = requestAnimationFrame(tick);
+    };
+
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+    }
+    this.rafId = requestAnimationFrame(tick);
+
+    return graph;
+  }
+
+  private finalizePcmGraphIfIdle(
+    runId: number,
+    onMouthLevel: (level: number) => void,
+    onSpeakingChange: (speaking: boolean) => void,
+    onWaveBins?: (bins: number[]) => void
+  ) {
+    if (this.activeRunId !== runId || !this.pcmGraph || this.pcmGraph.runId !== runId) {
+      return;
+    }
+    if (this.pcmGraph.streamCompleted && this.pcmGraph.sources.size === 0) {
+      if (this.rafId !== null) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      try {
+        this.pcmGraph.analyser.disconnect();
+      } catch {
+        // Abaikan
+      }
+      this.pcmGraph = null;
+      onMouthLevel(0);
+      onWaveBins?.([]);
+      onSpeakingChange(false);
+    }
+  }
+
+  /**
+   * Memutar chunk audio PCM 16-bit signed little-endian (24kHz mono) secara real-time
+   * langsung dari stream Gemini 3.8 Live tanpa jeda dan tanpa request tambahan ke /api/tts.
+   */
+  enqueuePcmChunk(params: {
+    base64Pcm: string;
+    sampleRate?: number;
+    voiceSettings?: VoiceSettings;
+    onMouthLevel: (level: number) => void;
+    onWaveBins?: (bins: number[]) => void;
+    onSpeakingChange: (speaking: boolean) => void;
+    onEngineUsed?: (engine: ActiveVoiceEngine) => void;
+  }) {
+    if (typeof window === 'undefined' || !params.base64Pcm) return;
+
+    try {
+      const binary = window.atob(params.base64Pcm);
+      const sampleCount = Math.floor(binary.length / 2);
+      if (sampleCount <= 0) return;
+
+      const ctx = this.ensureAudioContext();
+      const sampleRate = params.sampleRate ?? 24000;
+      const audioBuffer = ctx.createBuffer(1, sampleCount, sampleRate);
+      const channelData = audioBuffer.getChannelData(0);
+
+      for (let i = 0; i < sampleCount; i++) {
+        const lo = binary.charCodeAt(i * 2);
+        const hi = binary.charCodeAt(i * 2 + 1);
+        const int16 = (hi << 8) | lo;
+        const signed = int16 >= 0x8000 ? int16 - 0x10000 : int16;
+        channelData[i] = signed / 32768;
+      }
+
+      const runId = this.activeRunId;
+      const warmEq = params.voiceSettings?.warmEq ?? true;
+      const graph = this.ensurePcmGraph(
+        runId,
+        warmEq,
+        params.onMouthLevel,
+        params.onSpeakingChange,
+        params.onEngineUsed,
+        params.onWaveBins
+      );
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(graph.inputNode);
+
+      const now = ctx.currentTime;
+      // Buffer awal 45ms untuk menyambung chunk secara sample-accurate tanpa klik/gap
+      const startAt = graph.nextStartTime <= now ? now + 0.045 : graph.nextStartTime;
+      graph.nextStartTime = startAt + audioBuffer.duration;
+      graph.sources.add(source);
+
+      source.onended = () => {
+        graph.sources.delete(source);
+        try {
+          source.disconnect();
+        } catch {
+          // Abaikan
+        }
+        this.finalizePcmGraphIfIdle(
+          runId,
+          params.onMouthLevel,
+          params.onSpeakingChange,
+          params.onWaveBins
+        );
+      };
+
+      source.start(startAt);
+    } catch {
+      // Abaikan chunk korup bila ada
+    }
+  }
+
+  completePcmStream(
+    onMouthLevel: (level: number) => void,
+    onSpeakingChange: (speaking: boolean) => void,
+    onWaveBins?: (bins: number[]) => void
+  ) {
+    if (!this.pcmGraph) return;
+    this.pcmGraph.streamCompleted = true;
+    this.finalizePcmGraphIfIdle(
+      this.pcmGraph.runId,
+      onMouthLevel,
+      onSpeakingChange,
+      onWaveBins
+    );
   }
 
   enqueue(params: {

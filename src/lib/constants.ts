@@ -237,6 +237,8 @@ export const GEMINI_VOICE_OPTIONS: VoiceOption[] = [
   },
 ];
 
+export const ALLOWED_GEMINI_VOICE_SET = new Set(GEMINI_VOICE_OPTIONS.map((v) => v.id));
+
 export interface VoicePreset {
   id: string;
   label: string;
@@ -255,15 +257,15 @@ export const VOICE_PRESETS: VoicePreset[] = [
 export function getDefaultVoiceSettings(gender: AssistantGender): VoiceSettings {
   return gender === 'perempuan'
     ? {
-        engine: 'edge-tts',
+        engine: 'gemini-tts',
         voiceId: 'id-ID-GadisNeural',
-        geminiVoice: 'Leda',
+        geminiVoice: 'Aoede',
         pitch: 10,
         rate: 4,
         warmEq: true,
       }
     : {
-        engine: 'edge-tts',
+        engine: 'gemini-tts',
         voiceId: 'id-ID-ArdiNeural',
         geminiVoice: 'Puck',
         pitch: 4,

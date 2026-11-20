@@ -431,7 +431,12 @@ export default function ChatAssistant({
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({
+          message: trimmed,
+          voiceMode: isVoiceTurn,
+          engine: voiceSettingsRef.current.engine,
+          geminiVoice: voiceSettingsRef.current.geminiVoice,
+        }),
       });
 
       if (!res.ok) {
@@ -450,6 +455,7 @@ export default function ChatAssistant({
       let spokenOffset = 0;
       let streamedActions: ActionLog[] = [];
       let receivedDone = false;
+      let receivedNativeAudio = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -468,6 +474,8 @@ export default function ChatAssistant({
           const data = JSON.parse(line.slice(6)) as {
             type: string;
             text?: string;
+            data?: string;
+            sampleRate?: number;
             actions?: ActionLog[];
             userMessage?: ChatMessage | null;
             assistantMessage?: ChatMessage | null;
@@ -486,6 +494,19 @@ export default function ChatAssistant({
               )
             );
             void onDevicesUpdated();
+          } else if (data.type === 'audio' && data.data) {
+            if (modeRef.current === 'voice' && voicePlayerRef.current) {
+              receivedNativeAudio = true;
+              voicePlayerRef.current.enqueuePcmChunk({
+                base64Pcm: data.data,
+                sampleRate: data.sampleRate ?? 24000,
+                voiceSettings: voiceSettingsRef.current,
+                onMouthLevel: setMouthLevel,
+                onWaveBins: setWaveBins,
+                onSpeakingChange: setIsSpeaking,
+                onEngineUsed: setVoiceEngine,
+              });
+            }
           } else if (data.type === 'delta' && data.text) {
             streamedText += data.text;
             onMessagesChange((prev) =>
@@ -494,9 +515,10 @@ export default function ChatAssistant({
               )
             );
 
-            // TTS hanya berjalan saat mode === 'voice' (Mode Chat bebas suara)
+            // Jika memakai Edge TTS (bukan Native Audio), potong kalimat per titik secara streaming
             if (
               modeRef.current === 'voice' &&
+              !receivedNativeAudio &&
               voicePlayerRef.current &&
               voiceSettingsRef.current.engine !== 'gemini-tts'
             ) {
@@ -539,22 +561,27 @@ export default function ChatAssistant({
               })
             );
 
-            if (
-              modeRef.current === 'voice' &&
-              finalAsst.content &&
-              voicePlayerRef.current
-            ) {
-              const remaining = finalAsst.content.slice(spokenOffset).trim();
-              if (remaining) {
-                voicePlayerRef.current.enqueue({
-                  text: remaining,
-                  gender: genderRef.current,
-                  voiceSettings: voiceSettingsRef.current,
-                  onMouthLevel: setMouthLevel,
-                  onWaveBins: setWaveBins,
-                  onSpeakingChange: setIsSpeaking,
-                  onEngineUsed: setVoiceEngine,
-                });
+            if (modeRef.current === 'voice' && voicePlayerRef.current) {
+              if (receivedNativeAudio) {
+                // Audio sudah langsung diputar dari stream 1x Request Gemini 3.8 Live tanpa perlu panggil /api/tts!
+                voicePlayerRef.current.completePcmStream(
+                  setMouthLevel,
+                  setIsSpeaking,
+                  setWaveBins
+                );
+              } else if (finalAsst.content) {
+                const remaining = finalAsst.content.slice(spokenOffset).trim();
+                if (remaining) {
+                  voicePlayerRef.current.enqueue({
+                    text: remaining,
+                    gender: genderRef.current,
+                    voiceSettings: voiceSettingsRef.current,
+                    onMouthLevel: setMouthLevel,
+                    onWaveBins: setWaveBins,
+                    onSpeakingChange: setIsSpeaking,
+                    onEngineUsed: setVoiceEngine,
+                  });
+                }
               }
             }
           } else if (data.type === 'error') {
@@ -611,7 +638,7 @@ export default function ChatAssistant({
 
   const engineLabel =
     voiceEngine === 'gemini-tts'
-      ? 'Gemini 3.8 TTS'
+      ? 'Gemini 3.8 Live'
       : voiceEngine === 'browser-fallback'
         ? 'Suara Browser'
         : 'Edge Neural';
@@ -631,10 +658,10 @@ export default function ChatAssistant({
         ? 'Mic aktif — Silakan bicara'
         : micPhase === 'listening'
           ? 'Mendengarkan suara kamu...'
-          : sending
-            ? statusLabel
-            : isSpeaking
-              ? `Sedang berbicara (${engineLabel})...`
+          : isSpeaking
+            ? `Sedang berbicara (${engineLabel})...`
+            : sending
+              ? statusLabel
               : 'Siap mendengarkan — Ketuk mic';
 
   return (
@@ -771,16 +798,14 @@ export default function ChatAssistant({
                 return (
                   <div
                     key={msg.id}
-                    className={`flex items-start gap-2 ${
-                      isUser ? 'flex-row-reverse' : 'flex-row'
-                    }`}
+                    className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'
+                      }`}
                   >
                     <div
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
-                        isUser
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${isUser
                           ? 'bg-sky-500/15 text-sky-300'
                           : 'bg-emerald-500/15 text-emerald-300'
-                      }`}
+                        }`}
                     >
                       {isUser ? (
                         <User className="h-3.5 w-3.5" aria-hidden="true" />
@@ -790,11 +815,10 @@ export default function ChatAssistant({
                     </div>
 
                     <div
-                      className={`min-w-0 max-w-[85%] space-y-1.5 rounded-xl px-3 py-2 text-[13px] leading-snug ${
-                        isUser
+                      className={`min-w-0 max-w-[85%] space-y-1.5 rounded-xl px-3 py-2 text-[13px] leading-snug ${isUser
                           ? 'bg-sky-600 text-white'
                           : 'border border-slate-800 bg-slate-950/80 text-slate-100'
-                      }`}
+                        }`}
                     >
                       {isEmptyStreaming ? (
                         <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -812,11 +836,10 @@ export default function ChatAssistant({
                           {msg.actions.map((act, idx) => (
                             <span
                               key={`${act.device_id}-${idx}`}
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                act.is_on
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${act.is_on
                                   ? 'bg-emerald-500/20 text-emerald-300'
                                   : 'bg-slate-800 text-slate-300'
-                              }`}
+                                }`}
                             >
                               {act.kind === 'wled' && act.color_hex && (
                                 <span
@@ -913,15 +936,14 @@ export default function ChatAssistant({
               <div
                 role="status"
                 aria-live="polite"
-                className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium ${
-                  isListening
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium ${isListening
                     ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
                     : isSpeaking
                       ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
                       : sending
                         ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
                         : 'border-slate-800 bg-slate-950/70 text-slate-300'
-                }`}
+                  }`}
               >
                 {sending && !isSpeaking && (
                   <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
@@ -963,11 +985,10 @@ export default function ChatAssistant({
                   {lastVoiceActions.map((act, idx) => (
                     <span
                       key={`${act.device_id}-${idx}`}
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-medium ${
-                        act.is_on
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-medium ${act.is_on
                           ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30'
                           : 'bg-slate-800 text-slate-300 ring-1 ring-slate-700'
-                      }`}
+                        }`}
                     >
                       {act.kind === 'wled' && act.color_hex && (
                         <span
@@ -1023,7 +1044,7 @@ export default function ChatAssistant({
                   <button
                     type="button"
                     onClick={handleVoiceStageMicClick}
-                    disabled={sending}
+                    disabled={sending && !isSpeaking}
                     aria-pressed={isListening}
                     aria-label={
                       isListening
@@ -1032,15 +1053,14 @@ export default function ChatAssistant({
                           ? 'Interupsi asisten dan mulai berbicara'
                           : 'Mulai berbicara ke asisten'
                     }
-                    className={`relative flex h-16 w-16 items-center justify-center rounded-full shadow-lg transition focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 ${
-                      isListening
+                    className={`relative flex h-16 w-16 items-center justify-center rounded-full shadow-lg transition focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 ${isListening
                         ? 'animate-pulse bg-rose-500 text-white shadow-rose-500/35 ring-4 ring-rose-500/30 hover:bg-rose-400'
-                        : sending
+                        : sending && !isSpeaking
                           ? 'bg-slate-800 text-slate-400 ring-1 ring-slate-700'
                           : 'bg-emerald-500 text-slate-950 shadow-emerald-500/30 ring-4 ring-emerald-500/20 hover:bg-emerald-400'
-                    }`}
+                      }`}
                   >
-                    {sending ? (
+                    {sending && !isSpeaking ? (
                       <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" />
                     ) : isListening ? (
                       <MicOff className="h-7 w-7" aria-hidden="true" />
@@ -1065,10 +1085,10 @@ export default function ChatAssistant({
                 <span className="text-[11px] font-medium text-slate-400">
                   {isListening
                     ? 'Ketuk lagi untuk kirim'
-                    : sending
-                      ? 'Sedang memproses...'
-                      : isSpeaking
-                        ? 'Ketuk mic untuk interupsi'
+                    : isSpeaking
+                      ? 'Ketuk mic untuk interupsi'
+                      : sending
+                        ? 'Sedang memproses...'
                         : 'Ketuk mic untuk berbicara'}
                 </span>
               </>

@@ -1,7 +1,20 @@
 import { NextResponse } from 'next/server';
 import { DEFAULT_ASSISTANT_PROFILE } from '@/lib/constants';
-import { decryptSecret } from '@/lib/crypto';
-import { streamSmartHomeAssistant } from '@/lib/gemini';
+import { decryptStoredApiKeys } from '@/lib/crypto';
+import {
+  type AssistantRunResult,
+  streamSmartHomeAssistant,
+  streamSmartHomeLiveAssistant,
+} from '@/lib/gemini';
+import {
+  GEMINI_FREE_TIER_LIMITS,
+  archiveDeletedChatQuota,
+  classifyGeminiFailoverError,
+  getPacificQuotaWindow,
+  recordGeminiRequest,
+  recordKeyRateLimit,
+  selectOrderedCandidateKeys,
+} from '@/lib/quota';
 import { createClient } from '@/lib/supabase/server';
 import type { AssistantProfile } from '@/lib/types';
 
@@ -45,6 +58,23 @@ export async function DELETE() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Arsipkan jumlah request hari ini sebelum menghapus riwayat agar penghitung kuota harian tetap akurat
+    const { dayStartIso } = getPacificQuotaWindow();
+    const { count: todayCount } = await supabase
+      .from('chat_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('role', 'assistant')
+      .gte('created_at', dayStartIso);
+
+    if (todayCount && todayCount > 0) {
+      archiveDeletedChatQuota(
+        user.id,
+        todayCount,
+        todayCount * GEMINI_FREE_TIER_LIMITS.ESTIMATED_TOKENS_PER_CHAT
+      );
+    }
+
     await supabase.from('chat_messages').delete().eq('user_id', user.id);
 
     return NextResponse.json({ ok: true });
@@ -65,8 +95,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Silakan login terlebih dahulu.' }, { status: 401 });
     }
 
-    const body = (await request.json().catch(() => null)) as { message?: string } | null;
+    const body = (await request.json().catch(() => null)) as {
+      message?: string;
+      voiceMode?: boolean;
+      engine?: string;
+      geminiVoice?: string;
+    } | null;
     const messageText = body?.message?.trim();
+    const useLiveNativeAudio =
+      Boolean(body?.voiceMode) && body?.engine !== 'edge-tts';
 
     if (!messageText) {
       return NextResponse.json({ error: 'Pesan tidak boleh kosong.' }, { status: 400 });
@@ -96,7 +133,7 @@ export async function POST(request: Request) {
       supabase
         .from('user_settings')
         .select(
-          'encrypted_gemini_api_key, assistant_name, assistant_gender, assistant_styles, assistant_description'
+          'encrypted_gemini_api_key, key_hint, assistant_name, assistant_gender, assistant_styles, assistant_description'
         )
         .eq('user_id', user.id)
         .maybeSingle(),
@@ -114,6 +151,7 @@ export async function POST(request: Request) {
 
     let settingsData = settingsRes.data as {
       encrypted_gemini_api_key?: string | null;
+      key_hint?: string | null;
       assistant_name?: string | null;
       assistant_gender?: string | null;
       assistant_styles?: string[] | null;
@@ -123,7 +161,7 @@ export async function POST(request: Request) {
     if (settingsRes.error) {
       const fallbackSettings = await supabase
         .from('user_settings')
-        .select('encrypted_gemini_api_key')
+        .select('encrypted_gemini_api_key, key_hint')
         .eq('user_id', user.id)
         .maybeSingle();
 
@@ -139,7 +177,14 @@ export async function POST(request: Request) {
       settingsData = fallbackSettings.data;
     }
 
-    if (!settingsData?.encrypted_gemini_api_key) {
+    // Dekripsi seluruh pool token milik user yang sedang login (100% terisolasi per user.id)
+    const userApiKeys = decryptStoredApiKeys(
+      settingsData?.encrypted_gemini_api_key,
+      settingsData?.key_hint,
+      user.id
+    );
+
+    if (userApiKeys.length === 0) {
       return NextResponse.json(
         {
           error:
@@ -156,16 +201,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const userGeminiApiKey = decryptSecret(settingsData.encrypted_gemini_api_key);
+    const candidateKeys = selectOrderedCandidateKeys(user.id, userApiKeys);
     const assistantProfile: AssistantProfile = {
-      name: settingsData.assistant_name?.trim() || DEFAULT_ASSISTANT_PROFILE.name,
-      gender: settingsData.assistant_gender === 'perempuan' ? 'perempuan' : 'laki-laki',
+      name: settingsData?.assistant_name?.trim() || DEFAULT_ASSISTANT_PROFILE.name,
+      gender: settingsData?.assistant_gender === 'perempuan' ? 'perempuan' : 'laki-laki',
       styles:
-        Array.isArray(settingsData.assistant_styles) &&
+        Array.isArray(settingsData?.assistant_styles) &&
         settingsData.assistant_styles.length > 0
           ? settingsData.assistant_styles
           : DEFAULT_ASSISTANT_PROFILE.styles,
-      description: settingsData.assistant_description ?? '',
+      description: settingsData?.assistant_description ?? '',
     };
     const history = (recentMessages ?? []).reverse();
 
@@ -190,23 +235,149 @@ export async function POST(request: Request) {
         };
 
         try {
-          const aiResult = await streamSmartHomeAssistant({
-            apiKey: userGeminiApiKey,
-            assistantProfile,
-            userId: user.id,
-            message: messageText,
-            history,
-            supabase,
-            rooms: rooms ?? [],
-            controllers: controllers ?? [],
-            devices: devices ?? [],
-            presets,
-            wledDevices,
-            wledPresets,
-            onStatus: (text) => sendEvent({ type: 'status', text }),
-            onActions: (actions) => sendEvent({ type: 'actions', actions }),
-            onTextDelta: (text) => sendEvent({ type: 'delta', text }),
-          });
+          let aiResult: AssistantRunResult | null = null;
+          let usedKey = candidateKeys[0];
+          let lastError: unknown = null;
+
+          // Loop Auto-Failover Multi-Token: jika Token A kena limit/gangguan, langsung switch ke Token B -> C dst.
+          for (let idx = 0; idx < candidateKeys.length; idx++) {
+            const currentKey = candidateKeys[idx];
+            usedKey = currentKey;
+            let emittedOutputOnThisKey = false;
+
+            try {
+              if (useLiveNativeAudio) {
+                try {
+                  aiResult = await streamSmartHomeLiveAssistant({
+                    apiKey: currentKey.apiKey,
+                    assistantProfile,
+                    geminiVoice: body?.geminiVoice,
+                    userId: user.id,
+                    message: messageText,
+                    history,
+                    supabase,
+                    rooms: rooms ?? [],
+                    controllers: controllers ?? [],
+                    devices: devices ?? [],
+                    presets,
+                    wledDevices,
+                    wledPresets,
+                    onStatus: (text) => sendEvent({ type: 'status', text }),
+                    onActions: (actions) => {
+                      emittedOutputOnThisKey = true;
+                      sendEvent({ type: 'actions', actions });
+                    },
+                    onTextDelta: (text) => {
+                      emittedOutputOnThisKey = true;
+                      sendEvent({ type: 'delta', text });
+                    },
+                    onAudioChunk: (base64Pcm, sampleRate) => {
+                      emittedOutputOnThisKey = true;
+                      sendEvent({ type: 'audio', data: base64Pcm, sampleRate });
+                    },
+                  });
+                } catch (liveErr) {
+                  // Jika Live gagal karena limit/kuota dan masih ada token cadangan, lempar ke outer catch agar langsung switch ke token berikutnya!
+                  const classification = classifyGeminiFailoverError(liveErr);
+                  if (
+                    !emittedOutputOnThisKey &&
+                    classification.shouldFailover &&
+                    idx + 1 < candidateKeys.length
+                  ) {
+                    throw liveErr;
+                  }
+
+                  console.warn(
+                    `Gemini 3.8 Live gagal pada ${currentKey.label}, fallback ke mode teks:`,
+                    liveErr instanceof Error ? liveErr.message : liveErr
+                  );
+                  aiResult = await streamSmartHomeAssistant({
+                    apiKey: currentKey.apiKey,
+                    assistantProfile,
+                    userId: user.id,
+                    message: messageText,
+                    history,
+                    supabase,
+                    rooms: rooms ?? [],
+                    controllers: controllers ?? [],
+                    devices: devices ?? [],
+                    presets,
+                    wledDevices,
+                    wledPresets,
+                    onStatus: (text) => sendEvent({ type: 'status', text }),
+                    onActions: (actions) => {
+                      emittedOutputOnThisKey = true;
+                      sendEvent({ type: 'actions', actions });
+                    },
+                    onTextDelta: (text) => {
+                      emittedOutputOnThisKey = true;
+                      sendEvent({ type: 'delta', text });
+                    },
+                  });
+                }
+              } else {
+                aiResult = await streamSmartHomeAssistant({
+                  apiKey: currentKey.apiKey,
+                  assistantProfile,
+                  userId: user.id,
+                  message: messageText,
+                  history,
+                  supabase,
+                  rooms: rooms ?? [],
+                  controllers: controllers ?? [],
+                  devices: devices ?? [],
+                  presets,
+                  wledDevices,
+                  wledPresets,
+                  onStatus: (text) => sendEvent({ type: 'status', text }),
+                  onActions: (actions) => {
+                    emittedOutputOnThisKey = true;
+                    sendEvent({ type: 'actions', actions });
+                  },
+                  onTextDelta: (text) => {
+                    emittedOutputOnThisKey = true;
+                    sendEvent({ type: 'delta', text });
+                  },
+                });
+              }
+
+              // Berhasil pada currentKey -> hentikan loop failover
+              break;
+            } catch (attemptErr) {
+              lastError = attemptErr;
+              const classification = classifyGeminiFailoverError(attemptErr);
+
+              if (classification.shouldFailover) {
+                recordKeyRateLimit(user.id, currentKey.id, {
+                  isDailyExhausted: classification.isDailyExhausted,
+                  cooldownMs: 60_000,
+                  errorMessage: classification.reason,
+                });
+              }
+
+              const hasNextToken = idx + 1 < candidateKeys.length;
+              if (!emittedOutputOnThisKey && hasNextToken) {
+                const nextKey = candidateKeys[idx + 1];
+                console.warn(
+                  `[Auto-Failover User ${user.id}] ${currentKey.label} gagal (${classification.reason}), beralih ke ${nextKey.label}...`
+                );
+                sendEvent({
+                  type: 'status',
+                  text: `Beralih otomatis ke ${nextKey.label}...`,
+                });
+                continue;
+              }
+
+              throw attemptErr;
+            }
+          }
+
+          if (!aiResult) {
+            throw (
+              lastError ??
+              new Error('Semua token Gemini sedang mencapai batas kuota.')
+            );
+          }
 
           const [{ data: userMsg, error: userErr }, { data: assistantMsg, error: asstErr }] =
             await Promise.all([
@@ -227,12 +398,25 @@ export async function POST(request: Request) {
             console.error('Gagal menyimpan riwayat chat:', userErr || asstErr);
           }
 
+          recordGeminiRequest(
+            user.id,
+            useLiveNativeAudio ? 'live-voice' : 'chat-text',
+            1800 + Math.ceil((aiResult.reply?.length ?? 0) / 4),
+            true,
+            usedKey.id
+          );
+
           sendEvent({
             type: 'done',
             userMessage: userMsg,
             assistantMessage: assistantMsg,
             reply: aiResult.reply,
             actions: aiResult.actions,
+            tokenUsed: {
+              id: usedKey.id,
+              label: usedKey.label,
+              maskedKey: usedKey.maskedKey,
+            },
           });
         } catch (err) {
           console.error('Chat Stream Error:', err);

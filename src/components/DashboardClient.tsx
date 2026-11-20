@@ -89,12 +89,12 @@ export default function DashboardClient({
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem('smart-home-voice-settings');
+      const raw = window.localStorage.getItem('smart-home-voice-settings-v2');
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<VoiceSettings>;
         const defaults = getDefaultVoiceSettings(initialAssistantProfile.gender);
         setVoiceSettings({
-          engine: parsed.engine === 'gemini-tts' ? 'gemini-tts' : 'edge-tts',
+          engine: parsed.engine === 'edge-tts' ? 'edge-tts' : 'gemini-tts',
           voiceId:
             typeof parsed.voiceId === 'string' &&
             VOICE_OPTIONS.some((v) => v.id === parsed.voiceId)
@@ -120,7 +120,7 @@ export default function DashboardClient({
   function updateVoiceSettings(next: VoiceSettings) {
     setVoiceSettings(next);
     try {
-      window.localStorage.setItem('smart-home-voice-settings', JSON.stringify(next));
+      window.localStorage.setItem('smart-home-voice-settings-v2', JSON.stringify(next));
     } catch {
       // Abaikan jika storage penuh
     }

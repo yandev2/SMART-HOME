@@ -1,17 +1,21 @@
 import {
+  Behavior,
   type Content,
   type FunctionCall,
   type FunctionDeclaration,
   GoogleGenAI,
+  Modality,
   type Part,
   ThinkingLevel,
   Type,
 } from '@google/genai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  ALLOWED_GEMINI_VOICE_SET,
   clampWledByte,
   formatGpioLabel,
   formatWledGpioLabel,
+  getDefaultVoiceSettings,
   isControllerOnline,
   isValidWledEffect,
   sanitizeHexColor,
@@ -29,8 +33,10 @@ import type {
   WledPreset,
 } from './types';
 
-// generateContentStream + gemini-3.5-flash-lite + ThinkingLevel.MINIMAL (~600ms TTFT)
+// generateContentStream + gemini-3.5-flash-lite + ThinkingLevel.MINIMAL (~600ms TTFT untuk mode chat teks)
 const MODEL_ID = 'gemini-3.5-flash-lite';
+// Gemini 3.8 Live API untuk mode suara 1x Request (Function Calling + Native Audio 24kHz + Transkrip Teks sekaligus)
+const LIVE_MODEL_ID = 'gemini-3.8-live';
 const MAX_TOOL_ROUNDS = 4;
 
 export type SafeController = Pick<Controller, 'id' | 'user_id' | 'name' | 'last_seen' | 'created_at'>;
@@ -1203,4 +1209,267 @@ export async function streamSmartHomeAssistant(params: {
       'Waduh, sinyalku barusan agak keselek nih! Coba ulangi lagi ya.',
     actions: allActions,
   };
+}
+
+export async function streamSmartHomeLiveAssistant(params: {
+  apiKey: string;
+  assistantProfile: AssistantProfile;
+  geminiVoice?: string;
+  userId: string;
+  message: string;
+  history: ChatMessage[];
+  supabase: SupabaseClient;
+  rooms: Room[];
+  controllers: SafeController[];
+  devices: Device[];
+  presets?: Preset[];
+  wledDevices?: WledDevice[];
+  wledPresets?: WledPreset[];
+  onTextDelta?: (chunk: string) => void;
+  onAudioChunk?: (base64Pcm: string, sampleRate: number) => void;
+  onStatus?: (statusText: string) => void;
+  onActions?: (actions: ActionLog[]) => void;
+}): Promise<AssistantRunResult> {
+  const ai = new GoogleGenAI({ apiKey: params.apiKey, apiVersion: 'v1beta' });
+  const wledDevices = [...(params.wledDevices ?? [])];
+  const baseSystemInstruction = buildSystemInstruction(
+    params.assistantProfile,
+    params.rooms,
+    params.controllers,
+    params.devices,
+    params.presets ?? [],
+    wledDevices,
+    params.wledPresets ?? []
+  );
+
+  const recentHistoryLines = params.history
+    .filter((m) => m.content.trim().length > 0)
+    .slice(-8)
+    .map((m) => `${m.role === 'assistant' ? params.assistantProfile.name || 'Asisten' : 'User'}: ${m.content.trim()}`)
+    .join('\n');
+
+  const voiceSystemInstruction = `${baseSystemInstruction}
+
+MODE SUARA REAL-TIME (GEMINI LIVE NATIVE AUDIO):
+- Kamu sedang berbicara langsung dengan suara ke user.
+- Jawab dengan 1-2 kalimat singkat, padat, ekspresif, dan langsung ke inti (hindari bullet points atau daftar markdown panjang agar terdengar natural di telinga).${
+    recentHistoryLines
+      ? `\n\nKONTEKS RIWAYAT OBROLAN TERAKHIR (Gunakan sebagai referensi jika user menyambung kalimat sebelumnya):\n${recentHistoryLines}`
+      : ''
+  }`;
+
+  const defaultVoice = getDefaultVoiceSettings(params.assistantProfile.gender).geminiVoice;
+  const voiceName =
+    params.geminiVoice && ALLOWED_GEMINI_VOICE_SET.has(params.geminiVoice)
+      ? params.geminiVoice
+      : defaultVoice;
+
+  const liveFunctionDeclarations: FunctionDeclaration[] = functionDeclarations.map((fd) => ({
+    ...fd,
+    behavior: Behavior.BLOCKING,
+  }));
+
+  const allActions: ActionLog[] = [];
+  let finalReply = '';
+  let audioChunkCount = 0;
+  let pendingTools = 0;
+
+  return new Promise<AssistantRunResult>((resolve, reject) => {
+    let settled = false;
+    let finishTimer: ReturnType<typeof setTimeout> | null = null;
+    let sessionRef: Awaited<ReturnType<typeof ai.live.connect>> | null = null;
+
+    const cleanup = () => {
+      if (finishTimer) {
+        clearTimeout(finishTimer);
+        finishTimer = null;
+      }
+      if (safetyTimer) {
+        clearTimeout(safetyTimer);
+      }
+      if (sessionRef) {
+        try {
+          sessionRef.close();
+        } catch {
+          // Abaikan error saat menutup socket
+        }
+        sessionRef = null;
+      }
+    };
+
+    const completeSuccess = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({
+        reply:
+          finalReply.trim() ||
+          (allActions.length > 0
+            ? 'Siap Bos, perintah perangkat sudah dijalankan!'
+            : 'Siap Bos!'),
+        actions: allActions,
+      });
+    };
+
+    const failWithError = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+
+    const safetyTimer = setTimeout(() => {
+      if (audioChunkCount > 0 || finalReply.trim().length > 0 || allActions.length > 0) {
+        completeSuccess();
+      } else {
+        failWithError(new Error('Batas waktu koneksi Gemini Live habis.'));
+      }
+    }, 20000);
+
+    ai.live
+      .connect({
+        model: LIVE_MODEL_ID,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          outputAudioTranscription: {},
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName,
+              },
+            },
+          },
+          systemInstruction: {
+            parts: [{ text: voiceSystemInstruction }],
+          },
+          tools: [{ functionDeclarations: liveFunctionDeclarations }],
+        },
+        callbacks: {
+          onmessage: async (msg) => {
+            if (settled) return;
+
+            try {
+              const incomingCalls = msg.toolCall?.functionCalls;
+              if (incomingCalls && incomingCalls.length > 0) {
+                pendingTools += 1;
+                if (finishTimer) {
+                  clearTimeout(finishTimer);
+                  finishTimer = null;
+                }
+
+                params.onStatus?.('Menjalankan perintah perangkat...');
+
+                const executed = await Promise.all(
+                  incomingCalls.map(async (call) => {
+                    const name = call.name ?? '';
+                    const args = (call.args ?? {}) as Record<string, unknown>;
+                    const { result, actions } = await executeToolCall(name, args, {
+                      userId: params.userId,
+                      supabase: params.supabase,
+                      rooms: params.rooms,
+                      controllers: params.controllers,
+                      devices: params.devices,
+                      wledDevices,
+                    });
+                    return { call, result, actions };
+                  })
+                );
+
+                const roundActions: ActionLog[] = [];
+                const functionResponses = executed.map(({ call, result, actions }) => {
+                  if (actions.length > 0) {
+                    roundActions.push(...actions);
+                    allActions.push(...actions);
+                  }
+                  return {
+                    id: call.id,
+                    name: call.name ?? '',
+                    response: { result },
+                  };
+                });
+
+                if (roundActions.length > 0) {
+                  params.onActions?.(roundActions);
+                }
+
+                if (!settled && sessionRef) {
+                  sessionRef.sendToolResponse({ functionResponses });
+                }
+                pendingTools = Math.max(0, pendingTools - 1);
+                return;
+              }
+
+              const parts = msg.serverContent?.modelTurn?.parts;
+              if (parts && parts.length > 0) {
+                for (const part of parts) {
+                  const b64 = part.inlineData?.data;
+                  if (b64) {
+                    audioChunkCount += 1;
+                    params.onAudioChunk?.(b64, 24000);
+                  }
+                }
+              }
+
+              const transcriptChunk = msg.serverContent?.outputTranscription?.text;
+              if (transcriptChunk) {
+                finalReply += transcriptChunk;
+                params.onTextDelta?.(transcriptChunk);
+              }
+
+              if (
+                pendingTools === 0 &&
+                (msg.serverContent?.generationComplete || msg.serverContent?.turnComplete)
+              ) {
+                if (msg.serverContent?.turnComplete) {
+                  completeSuccess();
+                } else if (
+                  (audioChunkCount > 0 || finalReply.trim().length > 0) &&
+                  !finishTimer
+                ) {
+                  // Beri jeda 80ms setelah generationComplete agar paket transkrip terakhir sempat masuk tanpa menunggu 3 detik turnComplete
+                  finishTimer = setTimeout(() => {
+                    if (pendingTools === 0) {
+                      completeSuccess();
+                    }
+                  }, 80);
+                }
+              }
+            } catch (handlerErr) {
+              failWithError(handlerErr);
+            }
+          },
+          onerror: (err) => {
+            if (audioChunkCount > 0 || finalReply.trim().length > 0) {
+              completeSuccess();
+            } else {
+              failWithError(new Error(err?.message || 'Koneksi Gemini Live terputus.'));
+            }
+          },
+          onclose: () => {
+            if (!settled) {
+              if (audioChunkCount > 0 || finalReply.trim().length > 0 || allActions.length > 0) {
+                completeSuccess();
+              } else {
+                failWithError(new Error('Sesi Gemini Live tertutup sebelum selesai.'));
+              }
+            }
+          },
+        },
+      })
+      .then((session) => {
+        if (settled) {
+          try {
+            session.close();
+          } catch {
+            // Abaikan
+          }
+          return;
+        }
+        sessionRef = session;
+        session.sendRealtimeInput({ text: params.message });
+      })
+      .catch((connErr) => {
+        failWithError(connErr);
+      });
+  });
 }

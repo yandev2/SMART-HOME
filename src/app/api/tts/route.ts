@@ -6,7 +6,14 @@ import {
   VOICE_OPTIONS,
   getDefaultVoiceSettings,
 } from '@/lib/constants';
-import { decryptSecret } from '@/lib/crypto';
+import { decryptStoredApiKeys } from '@/lib/crypto';
+import {
+  classifyGeminiFailoverError,
+  clearGeminiCooldown,
+  recordGeminiRequest,
+  recordKeyRateLimit,
+  selectOrderedCandidateKeys,
+} from '@/lib/quota';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -19,7 +26,7 @@ const globalForTts = globalThis as unknown as {
   __geminiTtsCooldownUntil?: Map<string, number>;
 };
 
-const GEMINI_COOLDOWN_MS = 30 * 60 * 1000; // 30 menit skip jika kena limit 429 Free Tier
+const GEMINI_COOLDOWN_MS = 60 * 1000; // 1 menit cooldown bila terkena rate limit RPM Free Tier
 
 function getPool(): Map<string, MsEdgeTTS> {
   if (!globalForTts.__edgeTtsPool) {
@@ -253,74 +260,90 @@ export async function POST(request: Request) {
 
     let geminiFallbackReason = '';
 
-    // Jika user memilih Gemini 3.8 TTS, coba pakai API key milik user terlebih dahulu (dengan circuit breaker & no-retry)
+    // Jika user memilih Gemini 3.8 TTS, gunakan pool token milik user dengan Auto-Failover (Token A -> Token B -> dst.)
     if (body?.engine === 'gemini-tts') {
-      const cooldownMap = getGeminiCooldownMap();
-      const cooldownUntil = cooldownMap.get(user.id) ?? 0;
+      try {
+        const settingsRes = await supabase
+          .from('user_settings')
+          .select('encrypted_gemini_api_key, key_hint, assistant_styles')
+          .eq('user_id', user.id)
+          .maybeSingle();
 
-      if (Date.now() < cooldownUntil) {
-        geminiFallbackReason = 'quota-cooldown';
-      } else {
-        try {
-          const settingsRes = await supabase
+        let encryptedKey = settingsRes.data?.encrypted_gemini_api_key ?? null;
+        let keyHint = settingsRes.data?.key_hint ?? null;
+        const assistantStyles = settingsRes.data?.assistant_styles ?? null;
+
+        if (settingsRes.error) {
+          const fallbackRes = await supabase
             .from('user_settings')
-            .select('encrypted_gemini_api_key, assistant_styles')
+            .select('encrypted_gemini_api_key, key_hint')
             .eq('user_id', user.id)
             .maybeSingle();
-
-          let encryptedKey = settingsRes.data?.encrypted_gemini_api_key ?? null;
-          const assistantStyles = settingsRes.data?.assistant_styles ?? null;
-
-          if (settingsRes.error) {
-            const fallbackRes = await supabase
-              .from('user_settings')
-              .select('encrypted_gemini_api_key')
-              .eq('user_id', user.id)
-              .maybeSingle();
-            encryptedKey = fallbackRes.data?.encrypted_gemini_api_key ?? null;
-          }
-
-          if (encryptedKey) {
-            const apiKey = decryptSecret(encryptedKey);
-            const style = buildGeminiSpeechStyle(pitchNum, rateNum, assistantStyles);
-            const { buffer, mimeType } = await synthesizeGeminiWav({
-              apiKey,
-              voice: geminiVoice,
-              cleanedText: cleaned,
-              style,
-            });
-
-            cooldownMap.delete(user.id);
-            return new NextResponse(new Uint8Array(buffer), {
-              status: 200,
-              headers: {
-                'Content-Type': mimeType,
-                'Content-Length': String(buffer.length),
-                'Cache-Control': 'no-store',
-                'X-TTS-Engine': 'gemini-tts',
-              },
-            });
-          } else {
-            geminiFallbackReason = 'no-api-key';
-          }
-        } catch (geminiErr) {
-          const errText =
-            geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
-          const isRateLimit =
-            errText.includes('429') ||
-            errText.toLowerCase().includes('rate limit') ||
-            errText.toLowerCase().includes('quota');
-          if (isRateLimit) {
-            cooldownMap.set(user.id, Date.now() + GEMINI_COOLDOWN_MS);
-            geminiFallbackReason = 'quota-exceeded';
-          } else {
-            geminiFallbackReason = 'gemini-error';
-          }
-          console.warn(
-            'Gemini TTS gagal, otomatis fallback cepat ke Edge Neural:',
-            errText
-          );
+          encryptedKey = fallbackRes.data?.encrypted_gemini_api_key ?? null;
+          keyHint = fallbackRes.data?.key_hint ?? null;
         }
+
+        const userApiKeys = decryptStoredApiKeys(encryptedKey, keyHint, user.id);
+
+        if (userApiKeys.length > 0) {
+          const candidateKeys = selectOrderedCandidateKeys(user.id, userApiKeys);
+          const style = buildGeminiSpeechStyle(pitchNum, rateNum, assistantStyles);
+
+          for (let idx = 0; idx < candidateKeys.length; idx++) {
+            const currentKey = candidateKeys[idx];
+            try {
+              const { buffer, mimeType } = await synthesizeGeminiWav({
+                apiKey: currentKey.apiKey,
+                voice: geminiVoice,
+                cleanedText: cleaned,
+                style,
+              });
+
+              clearGeminiCooldown(user.id, currentKey.id);
+              recordGeminiRequest(user.id, 'tts-preview', 450, false, currentKey.id);
+
+              return new NextResponse(new Uint8Array(buffer), {
+                status: 200,
+                headers: {
+                  'Content-Type': mimeType,
+                  'Content-Length': String(buffer.length),
+                  'Cache-Control': 'no-store',
+                  'X-TTS-Engine': 'gemini-tts',
+                  'X-TTS-Token-Label': encodeURIComponent(currentKey.label),
+                },
+              });
+            } catch (keyErr) {
+              const classification = classifyGeminiFailoverError(keyErr);
+              if (classification.shouldFailover) {
+                recordKeyRateLimit(user.id, currentKey.id, {
+                  isDailyExhausted: classification.isDailyExhausted,
+                  cooldownMs: GEMINI_COOLDOWN_MS,
+                  errorMessage: classification.reason,
+                });
+                geminiFallbackReason = 'quota-exceeded';
+              } else {
+                geminiFallbackReason = 'gemini-error';
+              }
+
+              if (idx + 1 < candidateKeys.length) {
+                console.warn(
+                  `[TTS Auto-Failover User ${user.id}] ${currentKey.label} gagal, mencoba ${candidateKeys[idx + 1].label}...`
+                );
+                continue;
+              }
+
+              console.warn(
+                'Semua token Gemini TTS gagal, otomatis fallback ke Edge Neural:',
+                keyErr instanceof Error ? keyErr.message : String(keyErr)
+              );
+            }
+          }
+        } else {
+          geminiFallbackReason = 'no-api-key';
+        }
+      } catch (outerErr) {
+        geminiFallbackReason = 'gemini-error';
+        console.warn('Gemini TTS gagal:', outerErr);
       }
     }
 
