@@ -7,13 +7,20 @@ import {
   VOICE_OPTIONS,
   VOICE_PRESETS,
 } from '@/lib/constants';
-import type { AssistantGender, VoiceSettings } from '@/lib/types';
+import type {
+  AssistantGender,
+  AvatarMode,
+  CustomAvatarConfig,
+  VoiceSettings,
+} from '@/lib/types';
 import { type ActiveVoiceEngine, SmartHomeVoicePlayer } from '@/lib/voice';
 import AssistantAvatar from './AssistantAvatar';
 
 interface VoiceSettingsFormProps {
   assistantName: string;
   gender: AssistantGender;
+  avatarMode?: AvatarMode;
+  customAvatar?: CustomAvatarConfig | null;
   hasApiKey: boolean;
   voiceSettings: VoiceSettings;
   onChange: (next: VoiceSettings) => void;
@@ -22,6 +29,8 @@ interface VoiceSettingsFormProps {
 export default function VoiceSettingsForm({
   assistantName,
   gender,
+  avatarMode,
+  customAvatar,
   hasApiKey,
   voiceSettings,
   onChange,
@@ -305,6 +314,8 @@ export default function VoiceSettingsForm({
               gender={gender}
               mouthLevel={mouthLevel}
               isSpeaking={testing}
+              avatarMode={avatarMode}
+              customAvatar={customAvatar}
             />
             <div className="text-xs">
               <p className="font-medium text-slate-200">Uji Hasil Audio</p>

@@ -20,6 +20,7 @@ import type {
 } from '@/lib/types';
 import ApiKeyManager from './ApiKeyManager';
 import AssistantSettingsForm from './AssistantSettingsForm';
+import AvatarCustomizer from './AvatarCustomizer';
 import ChatAssistant from './ChatAssistant';
 import ControllerManager from './ControllerManager';
 import DeviceManager from './DeviceManager';
@@ -403,11 +404,17 @@ export default function DashboardClient({
                 initialProfile={assistantProfile}
                 onProfileChanged={handleProfileChanged}
               />
+              <AvatarCustomizer
+                profile={assistantProfile}
+                onProfileChanged={handleProfileChanged}
+              />
             </div>
             <div className="min-w-0 space-y-6">
               <VoiceSettingsForm
                 assistantName={assistantProfile.name}
                 gender={assistantProfile.gender}
+                avatarMode={assistantProfile.avatarMode}
+                customAvatar={assistantProfile.customAvatar}
                 hasApiKey={hasApiKey}
                 voiceSettings={voiceSettings}
                 onChange={updateVoiceSettings}

@@ -56,11 +56,42 @@ export interface ChatMessage {
 
 export type AssistantGender = 'laki-laki' | 'perempuan';
 
+export type AvatarMode = 'default' | 'custom';
+
+export interface EyeRigPoint {
+  x: number;
+  y: number;
+  rx: number;
+  ry: number;
+}
+
+export interface MouthRigPoint {
+  x: number;
+  y: number;
+  rx: number;
+  ry: number;
+}
+
+export interface AvatarRig {
+  leftEye: EyeRigPoint;
+  rightEye: EyeRigPoint;
+  mouth: MouthRigPoint;
+  neckY: number;
+  motionIntensity: number;
+}
+
+export interface CustomAvatarConfig {
+  imageDataUrl: string;
+  rig: AvatarRig;
+}
+
 export interface AssistantProfile {
   name: string;
   gender: AssistantGender;
   styles: string[];
   description: string;
+  avatarMode?: AvatarMode;
+  customAvatar?: CustomAvatarConfig | null;
 }
 
 export type TtsEngine = 'edge-tts' | 'gemini-tts';

@@ -1,6 +1,9 @@
 import { redirect } from 'next/navigation';
 import DashboardClient from '@/components/DashboardClient';
-import { DEFAULT_ASSISTANT_PROFILE } from '@/lib/constants';
+import {
+  DEFAULT_ASSISTANT_PROFILE,
+  sanitizeCustomAvatar,
+} from '@/lib/constants';
 import { createClient } from '@/lib/supabase/server';
 import type { AssistantProfile } from '@/lib/types';
 
@@ -45,7 +48,7 @@ export default async function DashboardPage() {
     supabase
       .from('user_settings')
       .select(
-        'key_hint, assistant_name, assistant_gender, assistant_styles, assistant_description'
+        'key_hint, assistant_name, assistant_gender, assistant_styles, assistant_description, avatar_mode, custom_avatar_data'
       )
       .eq('user_id', user.id)
       .maybeSingle(),
@@ -54,32 +57,60 @@ export default async function DashboardPage() {
   const initialPresets = presetsRes.error ? [] : presetsRes.data ?? [];
   const initialPresetsTableReady = !presetsRes.error;
 
-  let keyHint: string | null = settingsRes.data?.key_hint ?? null;
+  let settingsRow: {
+    key_hint?: string | null;
+    assistant_name?: string | null;
+    assistant_gender?: string | null;
+    assistant_styles?: string[] | null;
+    assistant_description?: string | null;
+    avatar_mode?: string | null;
+    custom_avatar_data?: unknown;
+  } | null = settingsRes.data;
 
-  // Fallback jika kolom profil asisten belum ditambahkan via ALTER TABLE
+  // Fallback bertahap jika kolom avatar atau profil asisten belum ditambahkan via ALTER TABLE
   if (settingsRes.error) {
-    const fallbackRes = await supabase
+    const midFallback = await supabase
       .from('user_settings')
-      .select('key_hint')
+      .select(
+        'key_hint, assistant_name, assistant_gender, assistant_styles, assistant_description'
+      )
       .eq('user_id', user.id)
       .maybeSingle();
-    keyHint = fallbackRes.data?.key_hint ?? null;
+
+    if (!midFallback.error) {
+      settingsRow = midFallback.data;
+    } else {
+      const minFallback = await supabase
+        .from('user_settings')
+        .select('key_hint')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      settingsRow = minFallback.data;
+    }
   }
 
-  const assistantProfile: AssistantProfile = settingsRes.data
+  const keyHint: string | null = settingsRow?.key_hint ?? null;
+  const parsedCustomAvatar = sanitizeCustomAvatar(settingsRow?.custom_avatar_data);
+
+  const assistantProfile: AssistantProfile = settingsRow
     ? {
         name:
-          settingsRes.data.assistant_name?.trim() || DEFAULT_ASSISTANT_PROFILE.name,
+          settingsRow.assistant_name?.trim() || DEFAULT_ASSISTANT_PROFILE.name,
         gender:
-          settingsRes.data.assistant_gender === 'perempuan'
+          settingsRow.assistant_gender === 'perempuan'
             ? 'perempuan'
             : 'laki-laki',
         styles:
-          Array.isArray(settingsRes.data.assistant_styles) &&
-          settingsRes.data.assistant_styles.length > 0
-            ? settingsRes.data.assistant_styles
+          Array.isArray(settingsRow.assistant_styles) &&
+          settingsRow.assistant_styles.length > 0
+            ? settingsRow.assistant_styles
             : DEFAULT_ASSISTANT_PROFILE.styles,
-        description: settingsRes.data.assistant_description ?? '',
+        description: settingsRow.assistant_description ?? '',
+        avatarMode:
+          settingsRow.avatar_mode === 'custom' && parsedCustomAvatar
+            ? 'custom'
+            : 'default',
+        customAvatar: parsedCustomAvatar,
       }
     : DEFAULT_ASSISTANT_PROFILE;
 

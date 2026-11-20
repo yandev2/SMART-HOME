@@ -612,6 +612,8 @@ export default function ChatAssistant({
               gender={assistantProfile.gender}
               mouthLevel={0}
               isSpeaking={false}
+              avatarMode={assistantProfile.avatarMode}
+              customAvatar={assistantProfile.customAvatar}
             />
           ) : (
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
@@ -882,6 +884,8 @@ export default function ChatAssistant({
               isListening={isListening}
               isThinking={sending && !isSpeaking}
               size="lg"
+              avatarMode={assistantProfile.avatarMode}
+              customAvatar={assistantProfile.customAvatar}
             />
 
             <VoiceWaveVisualizer

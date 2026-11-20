@@ -1,4 +1,10 @@
-import type { AssistantGender, AssistantProfile, VoiceSettings } from './types';
+import type {
+  AssistantGender,
+  AssistantProfile,
+  AvatarRig,
+  CustomAvatarConfig,
+  VoiceSettings,
+} from './types';
 
 export interface GpioOption {
   pin: number;
@@ -49,11 +55,75 @@ export const ASSISTANT_STYLE_OPTIONS: StyleOption[] = [
   { id: 'tenang', label: 'Tenang & Elegan' },
 ];
 
+export const DEFAULT_AVATAR_RIG: AvatarRig = {
+  leftEye: { x: 0.405, y: 0.415, rx: 0.065, ry: 0.045 },
+  rightEye: { x: 0.595, y: 0.415, rx: 0.065, ry: 0.045 },
+  mouth: { x: 0.5, y: 0.555, rx: 0.085, ry: 0.055 },
+  neckY: 0.67,
+  motionIntensity: 1.0,
+};
+
+function clampRange(val: unknown, min: number, max: number, fallback: number): number {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return fallback;
+  return Math.min(max, Math.max(min, val));
+}
+
+export function sanitizeAvatarRig(raw: unknown): AvatarRig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const le = (r.leftEye && typeof r.leftEye === 'object' ? r.leftEye : {}) as Record<string, unknown>;
+  const re = (r.rightEye && typeof r.rightEye === 'object' ? r.rightEye : {}) as Record<string, unknown>;
+  const mo = (r.mouth && typeof r.mouth === 'object' ? r.mouth : {}) as Record<string, unknown>;
+
+  return {
+    leftEye: {
+      x: clampRange(le.x, 0.08, 0.92, DEFAULT_AVATAR_RIG.leftEye.x),
+      y: clampRange(le.y, 0.08, 0.92, DEFAULT_AVATAR_RIG.leftEye.y),
+      rx: clampRange(le.rx, 0.025, 0.16, DEFAULT_AVATAR_RIG.leftEye.rx),
+      ry: clampRange(le.ry, 0.02, 0.14, DEFAULT_AVATAR_RIG.leftEye.ry),
+    },
+    rightEye: {
+      x: clampRange(re.x, 0.08, 0.92, DEFAULT_AVATAR_RIG.rightEye.x),
+      y: clampRange(re.y, 0.08, 0.92, DEFAULT_AVATAR_RIG.rightEye.y),
+      rx: clampRange(re.rx, 0.025, 0.16, DEFAULT_AVATAR_RIG.rightEye.rx),
+      ry: clampRange(re.ry, 0.02, 0.14, DEFAULT_AVATAR_RIG.rightEye.ry),
+    },
+    mouth: {
+      x: clampRange(mo.x, 0.1, 0.9, DEFAULT_AVATAR_RIG.mouth.x),
+      y: clampRange(mo.y, 0.15, 0.92, DEFAULT_AVATAR_RIG.mouth.y),
+      rx: clampRange(mo.rx, 0.03, 0.22, DEFAULT_AVATAR_RIG.mouth.rx),
+      ry: clampRange(mo.ry, 0.02, 0.15, DEFAULT_AVATAR_RIG.mouth.ry),
+    },
+    neckY: clampRange(r.neckY, 0.35, 0.95, DEFAULT_AVATAR_RIG.neckY),
+    motionIntensity: clampRange(r.motionIntensity, 0.2, 1.6, DEFAULT_AVATAR_RIG.motionIntensity),
+  };
+}
+
+export function sanitizeCustomAvatar(raw: unknown): CustomAvatarConfig | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const dataUrl = typeof obj.imageDataUrl === 'string' ? obj.imageDataUrl.trim() : '';
+  const validPrefix =
+    dataUrl.startsWith('data:image/webp;base64,') ||
+    dataUrl.startsWith('data:image/png;base64,') ||
+    dataUrl.startsWith('data:image/jpeg;base64,');
+
+  if (!validPrefix || dataUrl.length > 750_000) {
+    return null;
+  }
+
+  return {
+    imageDataUrl: dataUrl,
+    rig: sanitizeAvatarRig(obj.rig),
+  };
+}
+
 export const DEFAULT_ASSISTANT_PROFILE: AssistantProfile = {
   name: 'Surya',
   gender: 'laki-laki',
   styles: ['santai', 'ceria', 'suka bercanda'],
   description: '',
+  avatarMode: 'default',
+  customAvatar: null,
 };
 
 export interface VoiceOption {

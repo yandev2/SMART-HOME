@@ -63,6 +63,8 @@ create table if not exists public.user_settings (
   assistant_gender text not null default 'laki-laki' check (assistant_gender in ('laki-laki', 'perempuan')),
   assistant_styles text[] not null default array['santai', 'ceria', 'suka bercanda']::text[],
   assistant_description text not null default '',
+  avatar_mode text not null default 'default' check (avatar_mode in ('default', 'custom')),
+  custom_avatar_data jsonb,
   updated_at timestamptz not null default now()
 );
 
@@ -84,13 +86,23 @@ alter table public.user_settings
   add column if not exists assistant_name text not null default 'Surya',
   add column if not exists assistant_gender text not null default 'laki-laki',
   add column if not exists assistant_styles text[] not null default array['santai', 'ceria', 'suka bercanda']::text[],
-  add column if not exists assistant_description text not null default '';
+  add column if not exists assistant_description text not null default '',
+  add column if not exists avatar_mode text not null default 'default',
+  add column if not exists custom_avatar_data jsonb;
 
 do $$
 begin
   alter table public.user_settings
     add constraint chk_user_settings_gender
     check (assistant_gender in ('laki-laki', 'perempuan'));
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter table public.user_settings
+    add constraint chk_user_settings_avatar_mode
+    check (avatar_mode in ('default', 'custom'));
 exception when duplicate_object then null;
 end $$;
 

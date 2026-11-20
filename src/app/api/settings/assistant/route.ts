@@ -1,18 +1,28 @@
 import { NextResponse } from 'next/server';
-import { DEFAULT_ASSISTANT_PROFILE } from '@/lib/constants';
+import {
+  DEFAULT_ASSISTANT_PROFILE,
+  sanitizeCustomAvatar,
+} from '@/lib/constants';
 import { createClient } from '@/lib/supabase/server';
-import type { AssistantGender, AssistantProfile } from '@/lib/types';
+import type { AssistantGender, AssistantProfile, AvatarMode } from '@/lib/types';
 
-function normalizeProfile(row: {
-  assistant_name?: string | null;
-  assistant_gender?: string | null;
-  assistant_styles?: string[] | null;
-  assistant_description?: string | null;
-} | null): AssistantProfile {
+function normalizeProfile(
+  row: {
+    assistant_name?: string | null;
+    assistant_gender?: string | null;
+    assistant_styles?: string[] | null;
+    assistant_description?: string | null;
+    avatar_mode?: string | null;
+    custom_avatar_data?: unknown;
+  } | null
+): AssistantProfile {
   if (!row) return DEFAULT_ASSISTANT_PROFILE;
 
   const gender: AssistantGender =
     row.assistant_gender === 'perempuan' ? 'perempuan' : 'laki-laki';
+  const customAvatar = sanitizeCustomAvatar(row.custom_avatar_data);
+  const avatarMode: AvatarMode =
+    row.avatar_mode === 'custom' && customAvatar ? 'custom' : 'default';
 
   return {
     name: row.assistant_name?.trim() || DEFAULT_ASSISTANT_PROFILE.name,
@@ -22,6 +32,8 @@ function normalizeProfile(row: {
         ? row.assistant_styles
         : DEFAULT_ASSISTANT_PROFILE.styles,
     description: row.assistant_description ?? '',
+    avatarMode,
+    customAvatar,
   };
 }
 
@@ -39,13 +51,24 @@ export async function GET() {
     const { data, error } = await supabase
       .from('user_settings')
       .select(
-        'assistant_name, assistant_gender, assistant_styles, assistant_description'
+        'assistant_name, assistant_gender, assistant_styles, assistant_description, avatar_mode, custom_avatar_data'
       )
       .eq('user_id', user.id)
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      // Fallback jika kolom avatar baru belum dijalankan di SQL Editor
+      const fallback = await supabase
+        .from('user_settings')
+        .select(
+          'assistant_name, assistant_gender, assistant_styles, assistant_description'
+        )
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (fallback.error) {
+        return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+      }
+      return NextResponse.json({ profile: normalizeProfile(fallback.data) });
     }
 
     return NextResponse.json({ profile: normalizeProfile(data) });
@@ -92,25 +115,76 @@ export async function PUT(request: Request) {
       );
     }
 
+    const hasAvatarUpdate = body?.avatarMode !== undefined || body?.customAvatar !== undefined;
+    const upsertPayload: Record<string, unknown> = {
+      user_id: user.id,
+      assistant_name: name,
+      assistant_gender: gender,
+      assistant_styles: styles,
+      assistant_description: description,
+    };
+
+    if (hasAvatarUpdate) {
+      const sanitizedAvatar =
+        body?.customAvatar !== undefined
+          ? sanitizeCustomAvatar(body.customAvatar)
+          : undefined;
+      const requestedMode: AvatarMode =
+        body?.avatarMode === 'custom' ? 'custom' : 'default';
+
+      if (requestedMode === 'custom' && sanitizedAvatar === null) {
+        return NextResponse.json(
+          { error: 'Data gambar custom avatar tidak valid atau terlalu besar.' },
+          { status: 400 }
+        );
+      }
+
+      upsertPayload.avatar_mode = requestedMode;
+      if (sanitizedAvatar !== undefined) {
+        upsertPayload.custom_avatar_data = sanitizedAvatar;
+      }
+    }
+
     const { data, error } = await supabase
       .from('user_settings')
-      .upsert(
-        {
-          user_id: user.id,
-          assistant_name: name,
-          assistant_gender: gender,
-          assistant_styles: styles,
-          assistant_description: description,
-        },
-        { onConflict: 'user_id' }
-      )
+      .upsert(upsertPayload, { onConflict: 'user_id' })
       .select(
-        'assistant_name, assistant_gender, assistant_styles, assistant_description'
+        'assistant_name, assistant_gender, assistant_styles, assistant_description, avatar_mode, custom_avatar_data'
       )
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!hasAvatarUpdate) {
+        const fallbackUpsert = await supabase
+          .from('user_settings')
+          .upsert(
+            {
+              user_id: user.id,
+              assistant_name: name,
+              assistant_gender: gender,
+              assistant_styles: styles,
+              assistant_description: description,
+            },
+            { onConflict: 'user_id' }
+          )
+          .select(
+            'assistant_name, assistant_gender, assistant_styles, assistant_description'
+          )
+          .single();
+
+        if (!fallbackUpsert.error) {
+          return NextResponse.json({ profile: normalizeProfile(fallbackUpsert.data) });
+        }
+      }
+
+      return NextResponse.json(
+        {
+          error: hasAvatarUpdate
+            ? `Gagal menyimpan custom avatar (${error.message}). Pastikan SQL terbaru di supabase/schema.sql sudah dijalankan di Supabase.`
+            : error.message,
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ profile: normalizeProfile(data) });
@@ -119,4 +193,3 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
