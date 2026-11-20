@@ -14,6 +14,7 @@ import type {
   ChatMessage,
   Controller,
   Device,
+  Preset,
   Room,
   VoiceSettings,
 } from '@/lib/types';
@@ -22,6 +23,7 @@ import AssistantSettingsForm from './AssistantSettingsForm';
 import ChatAssistant from './ChatAssistant';
 import ControllerManager from './ControllerManager';
 import DeviceManager from './DeviceManager';
+import PresetManager from './PresetManager';
 import RoomManager from './RoomManager';
 import VoiceSettingsForm from './VoiceSettingsForm';
 
@@ -31,6 +33,8 @@ interface DashboardClientProps {
   initialRooms: Room[];
   initialControllers: Controller[];
   initialDevices: Device[];
+  initialPresets: Preset[];
+  initialPresetsTableReady: boolean;
   initialMessages: ChatMessage[];
   initialHasApiKey: boolean;
   initialMaskedApiKey: string | null;
@@ -45,6 +49,8 @@ export default function DashboardClient({
   initialRooms,
   initialControllers,
   initialDevices,
+  initialPresets,
+  initialPresetsTableReady,
   initialMessages,
   initialHasApiKey,
   initialMaskedApiKey,
@@ -55,6 +61,8 @@ export default function DashboardClient({
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
   const [controllers, setControllers] = useState<Controller[]>(initialControllers);
   const [devices, setDevices] = useState<Device[]>(initialDevices);
+  const [presets, setPresets] = useState<Preset[]>(initialPresets);
+  const [presetsTableReady, setPresetsTableReady] = useState(initialPresetsTableReady);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [hasApiKey, setHasApiKey] = useState(initialHasApiKey);
   const [maskedApiKey, setMaskedApiKey] = useState<string | null>(initialMaskedApiKey);
@@ -129,14 +137,19 @@ export default function DashboardClient({
 
   const refreshData = useCallback(async () => {
     const supabase = createClient();
-    const [{ data: r }, { data: c }, { data: d }] = await Promise.all([
+    const [{ data: r }, { data: c }, { data: d }, presetsRes] = await Promise.all([
       supabase.from('rooms').select('*').eq('user_id', userId).order('name'),
       supabase.from('controllers').select('*').eq('user_id', userId).order('name'),
       supabase.from('devices').select('*').eq('user_id', userId).order('name'),
+      supabase.from('presets').select('*').eq('user_id', userId).order('name'),
     ]);
     if (r) setRooms(r);
     if (c) setControllers(c);
     if (d) setDevices(d);
+    if (!presetsRes.error) {
+      setPresetsTableReady(true);
+      if (presetsRes.data) setPresets(presetsRes.data);
+    }
   }, [userId]);
 
   useEffect(() => {
@@ -169,6 +182,13 @@ export default function DashboardClient({
           void refreshData();
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'presets', filter: `user_id=eq.${userId}` },
+        () => {
+          void refreshData();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -187,8 +207,9 @@ export default function DashboardClient({
     () => [
       ...rooms.map((r) => r.name),
       ...devices.flatMap((d) => [d.name, d.aliases].filter(Boolean)),
+      ...presets.flatMap((p) => [p.name, p.keywords].filter(Boolean)),
     ],
-    [rooms, devices]
+    [rooms, devices, presets]
   );
 
   async function handleLogout() {
@@ -337,7 +358,15 @@ export default function DashboardClient({
                 onDevicesUpdated={refreshData}
               />
             </div>
-            <div className="min-w-0 lg:col-span-6">
+            <div className="min-w-0 space-y-5 lg:col-span-6">
+              <PresetManager
+                userId={userId}
+                rooms={rooms}
+                devices={devices}
+                presets={presets}
+                tableReady={presetsTableReady}
+                onChanged={refreshData}
+              />
               <DeviceManager
                 userId={userId}
                 rooms={rooms}

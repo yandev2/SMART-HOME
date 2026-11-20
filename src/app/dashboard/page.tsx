@@ -28,12 +28,14 @@ export default async function DashboardPage() {
     { data: rooms },
     { data: controllers },
     { data: devices },
+    presetsRes,
     { data: messages },
     settingsRes,
   ] = await Promise.all([
     supabase.from('rooms').select('*').eq('user_id', user.id).order('name'),
     supabase.from('controllers').select('*').eq('user_id', user.id).order('name'),
     supabase.from('devices').select('*').eq('user_id', user.id).order('name'),
+    supabase.from('presets').select('*').eq('user_id', user.id).order('name'),
     supabase
       .from('chat_messages')
       .select('*')
@@ -48,6 +50,9 @@ export default async function DashboardPage() {
       .eq('user_id', user.id)
       .maybeSingle(),
   ]);
+
+  const initialPresets = presetsRes.error ? [] : presetsRes.data ?? [];
+  const initialPresetsTableReady = !presetsRes.error;
 
   let keyHint: string | null = settingsRes.data?.key_hint ?? null;
 
@@ -85,6 +90,8 @@ export default async function DashboardPage() {
       initialRooms={rooms ?? []}
       initialControllers={controllers ?? []}
       initialDevices={devices ?? []}
+      initialPresets={initialPresets}
+      initialPresetsTableReady={initialPresetsTableReady}
       initialMessages={(messages ?? []).reverse()}
       initialHasApiKey={Boolean(keyHint)}
       initialMaskedApiKey={keyHint}

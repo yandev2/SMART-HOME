@@ -72,11 +72,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Pesan tidak boleh kosong.' }, { status: 400 });
     }
 
-    // Ambil konteks perangkat, API key user, dan 10 riwayat terakhir secara paralel
+    // Ambil konteks perangkat, preset, API key user, dan 10 riwayat terakhir secara paralel
     const [
       { data: rooms, error: roomsErr },
       { data: controllers, error: ctrlErr },
       { data: devices, error: devErr },
+      presetsRes,
       settingsRes,
       { data: recentMessages },
     ] = await Promise.all([
@@ -87,6 +88,7 @@ export async function POST(request: Request) {
         .eq('user_id', user.id)
         .order('name'),
       supabase.from('devices').select('*').eq('user_id', user.id).order('name'),
+      supabase.from('presets').select('*').eq('user_id', user.id).order('name'),
       supabase
         .from('user_settings')
         .select(
@@ -101,6 +103,8 @@ export async function POST(request: Request) {
         .order('created_at', { ascending: false })
         .limit(10),
     ]);
+
+    const presets = presetsRes.error ? [] : presetsRes.data ?? [];
 
     let settingsData = settingsRes.data as {
       encrypted_gemini_api_key?: string | null;
@@ -190,6 +194,7 @@ export async function POST(request: Request) {
             rooms: rooms ?? [],
             controllers: controllers ?? [],
             devices: devices ?? [],
+            presets,
             onStatus: (text) => sendEvent({ type: 'status', text }),
             onActions: (actions) => sendEvent({ type: 'actions', actions }),
             onTextDelta: (text) => sendEvent({ type: 'delta', text }),

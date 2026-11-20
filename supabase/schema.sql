@@ -66,6 +66,19 @@ create table if not exists public.user_settings (
   updated_at timestamptz not null default now()
 );
 
+-- 7. Tabel Mode Kombinasi / Preset Perintah (Scenes)
+create table if not exists public.presets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  room_id uuid references public.rooms(id) on delete set null,
+  name text not null,
+  keywords text not null default '',
+  device_ids uuid[] not null default '{}'::uuid[],
+  turn_off_others boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Migrasi aman jika tabel user_settings sudah dibuat sebelumnya
 alter table public.user_settings
   add column if not exists assistant_name text not null default 'Surya',
@@ -88,6 +101,7 @@ create index if not exists idx_controllers_token on public.controllers(api_token
 create index if not exists idx_devices_user_id on public.devices(user_id);
 create index if not exists idx_devices_controller_id on public.devices(controller_id);
 create index if not exists idx_chat_messages_user_id on public.chat_messages(user_id, created_at);
+create index if not exists idx_presets_user_id on public.presets(user_id);
 
 -- Trigger otomatis update kolom updated_at
 create or replace function public.set_updated_at()
@@ -115,6 +129,11 @@ create trigger trg_user_settings_updated_at
   before update on public.user_settings
   for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_presets_updated_at on public.presets;
+create trigger trg_presets_updated_at
+  before update on public.presets
+  for each row execute function public.set_updated_at();
+
 -- Aktifkan Row Level Security (RLS)
 alter table public.rooms enable row level security;
 alter table public.controllers enable row level security;
@@ -122,6 +141,7 @@ alter table public.devices enable row level security;
 alter table public.chat_sessions enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.user_settings enable row level security;
+alter table public.presets enable row level security;
 
 -- Policies: User hanya bisa mengakses data miliknya sendiri
 drop policy if exists "rooms_own_all" on public.rooms;
@@ -148,6 +168,10 @@ drop policy if exists "user_settings_own_all" on public.user_settings;
 create policy "user_settings_own_all" on public.user_settings
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "presets_own_all" on public.presets;
+create policy "presets_own_all" on public.presets
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- Aktifkan Supabase Realtime agar perubahan status perangkat langsung muncul di Web UI
 do $$
 begin
@@ -164,6 +188,12 @@ end $$;
 do $$
 begin
   alter publication supabase_realtime add table public.devices;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.presets;
 exception when duplicate_object then null;
 end $$;
 

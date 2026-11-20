@@ -9,12 +9,14 @@ import {
 } from '@google/genai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { formatGpioLabel, isControllerOnline } from './constants';
+import { computePresetTargets, executePresetActivation } from './presets';
 import type {
   ActionLog,
   AssistantProfile,
   ChatMessage,
   Controller,
   Device,
+  Preset,
   Room,
 } from './types';
 
@@ -79,7 +81,8 @@ function buildSystemInstruction(
   profile: AssistantProfile,
   rooms: Room[],
   controllers: SafeController[],
-  devices: Device[]
+  devices: Device[],
+  presets: Preset[]
 ): string {
   const { roomMap, controllerMap, summary, roomSummaries, controllerSummaries } =
     buildHomeSnapshot(rooms, controllers, devices);
@@ -119,6 +122,25 @@ function buildSystemInstruction(
           })
           .join('\n');
 
+  const presetListText =
+    presets.length === 0
+      ? '- (Belum ada mode kombinasi / preset)'
+      : presets
+          .map((p) => {
+            const roomName = p.room_id ? roomMap.get(p.room_id) ?? 'Tanpa Ruangan' : 'Tanpa Ruangan';
+            const { targetsOn, targetsOff } = computePresetTargets(p, devices);
+            const onNames =
+              targetsOn.length > 0 ? targetsOn.map((d) => d.name).join(', ') : '(tidak ada — matikan semua)';
+            const offNote = p.turn_off_others
+              ? targetsOff.length > 0
+                ? `Matikan lainnya di ${roomName}: ${targetsOff.map((d) => d.name).join(', ')}`
+                : `Matikan lainnya di ${roomName}`
+              : 'Tidak mematikan perangkat lain';
+            const kwInfo = p.keywords.trim() ? ` | Kata kunci: "${p.keywords.trim()}"` : '';
+            return `- [preset_id: ${p.id}] "${p.name}"${kwInfo} | Ruang: "${roomName}" | Nyalakan: [${onNames}] | ${offNote}`;
+          })
+          .join('\n');
+
   const genderText =
     profile.gender === 'perempuan'
       ? 'Perempuan (gunakan gaya sapaan dan ekspresi khas asisten perempuan yang natural)'
@@ -147,8 +169,11 @@ ATURAN WAJIB:
 4. Perintah menyalakan/mematikan 1 perangkat yang statusnya memang berbeda -> WAJIB panggil \`control_device\`.
 5. Perintah menyalakan/mematikan semua perangkat di 1 ruangan (selama masih ada minimal 1 perangkat yang statusnya berbeda) -> WAJIB panggil \`control_room\`.
 6. Perintah menyalakan/mematikan SEMUA perangkat di rumah (selama masih ada minimal 1 perangkat yang statusnya berbeda) -> WAJIB panggil \`control_all_devices\`.
-7. PENTING: Jika perangkat masih perlu diubah statusnya, TETAP WAJIB panggil tool kontrol (\`control_device\`, \`control_room\`, atau \`control_all_devices\`) MESKIPUN status hardware \`Offline\`! Database tetap harus diubah agar UI web ikut berubah dan NodeMCU langsung menyala/mati saat kembali online.
-8. KEJUJURAN HASIL TOOL:
+7. MODE KOMBINASI / PRESET PERINTAH:
+   - Periksa daftar MODE KOMBINASI / PRESET di bawah. Jika ucapan user merujuk pada nama preset, kata kunci pemicu, atau niat/aktivitas yang cocok dengan preset tersebut (contoh: "waktunya nge game nih" cocok dengan preset Mode Gaming, atau "mode tidur"), WAJIB panggil activate_preset dengan preset_id yang sesuai!
+   - activate_preset otomatis menyalakan perangkat yang terdaftar di preset dan mematikan perangkat lain di ruangan yang sama (jika opsi matikan lainnya aktif).
+8. PENTING: Jika perangkat masih perlu diubah statusnya, TETAP WAJIB panggil tool kontrol (control_device, control_room, control_all_devices, atau activate_preset) MESKIPUN status hardware Offline! Database tetap harus diubah agar UI web ikut berubah dan NodeMCU langsung menyala/mati saat kembali online.
+9. KEJUJURAN HASIL TOOL:
    - DILARANG KERAS mengaku sudah menyalakan/mematikan sebelum memanggil tool kontrol (kecuali jika statusnya memang SUDAH ON/OFF dari awal sebelum perintah).
    - Jika tool mengembalikan \`already_in_state: true\` atau \`changed_count: 0\`, JANGAN bilang "sudah saya matikan/nyalakan sekarang", melainkan beri tahu jujur bahwa perangkat tersebut memang sudah dalam kondisi tersebut sebelumnya.
    - Jika ada sebagian yang berubah dan sebagian sudah dalam kondisi target, sampaikan keduanya secara jujur.
@@ -157,7 +182,10 @@ ATURAN WAJIB:
 10. TOLERANSI PERINTAH SUARA (STT): Input user sering berasal dari mikrofon (Speech-to-Text Bahasa Indonesia) sehingga kadang terdapat salah dengar fonetik ringan (contoh: "matikan labu kamar" = "Lampu Kamar", "nyalahin/nyala in" = "nyalakan", "keras" = "Teras", "kibas" = "Kipas"). Jika konteks kalimat dan kemiripan bunyi jelas mengarah ke salah satu perangkat/ruangan di database, pahami maksud sebenarnya dengan cerdas (tetap tanya singkat jika benar-benar meragukan).
 
 RINGKASAN DATABASE USER (REAL-TIME SAAT INI):
-Total Ruangan: ${summary.total_rooms} | Total NodeMCU: ${summary.total_controllers} | Total Perangkat: ${summary.total_devices} (${summary.devices_on} ON, ${summary.devices_off} OFF, ${summary.unassigned_devices_count} Tanpa Ruangan)
+Total Ruangan: ${summary.total_rooms} | Total NodeMCU: ${summary.total_controllers} | Total Perangkat: ${summary.total_devices} (${summary.devices_on} ON, ${summary.devices_off} OFF, ${summary.unassigned_devices_count} Tanpa Ruangan) | Total Preset: ${presets.length}
+
+MODE KOMBINASI / PRESET:
+${presetListText}
 
 RUANGAN:
 ${roomListText}
@@ -221,6 +249,21 @@ const functionDeclarations: FunctionDeclaration[] = [
         },
       },
       required: ['is_on'],
+    },
+  },
+  {
+    name: 'activate_preset',
+    description:
+      'Mengaktifkan salah satu Mode Kombinasi / Preset milik user: menyalakan perangkat di dalam preset tersebut dan (bila diaktifkan) mematikan perangkat lain pada ruangan yang sama.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        preset_id: {
+          type: Type.STRING,
+          description: 'UUID preset_id persis dari daftar MODE KOMBINASI / PRESET.',
+        },
+      },
+      required: ['preset_id'],
     },
   },
   {
@@ -515,6 +558,96 @@ async function executeToolCall(
     });
   }
 
+  if (name === 'activate_preset') {
+    const presetId = typeof args.preset_id === 'string' ? args.preset_id : '';
+    if (!presetId) {
+      return { result: { ok: false, error: 'preset_id tidak valid.' }, actions: [] };
+    }
+
+    const [{ data: presetRow, error: presetErr }, { data: liveDevices, error: devErr }] =
+      await Promise.all([
+        ctx.supabase
+          .from('presets')
+          .select('*')
+          .eq('id', presetId)
+          .eq('user_id', ctx.userId)
+          .single(),
+        ctx.supabase
+          .from('devices')
+          .select('id, name, room_id, controller_id, is_on')
+          .eq('user_id', ctx.userId),
+      ]);
+
+    if (presetErr || !presetRow) {
+      return { result: { ok: false, error: 'Preset tidak ditemukan.' }, actions: [] };
+    }
+    if (devErr) {
+      return {
+        result: { ok: false, error: 'Gagal membaca daftar perangkat untuk preset.' },
+        actions: [],
+      };
+    }
+
+    const preset = presetRow as Preset;
+    const outcome = await executePresetActivation({
+      supabase: ctx.supabase,
+      userId: ctx.userId,
+      preset,
+      devices: liveDevices ?? [],
+    });
+
+    if (outcome.turnedOn.length > 0) {
+      syncDevicesInContext(
+        ctx.devices,
+        new Set(outcome.turnedOn.map((d) => d.id)),
+        true
+      );
+    }
+    if (outcome.turnedOff.length > 0) {
+      syncDevicesInContext(
+        ctx.devices,
+        new Set(outcome.turnedOff.map((d) => d.id)),
+        false
+      );
+    }
+
+    const changedCount = outcome.actions.length;
+    const roomName = preset.room_id
+      ? roomMap.get(preset.room_id) ?? 'Tanpa Ruangan'
+      : 'Tanpa Ruangan';
+
+    const touchedDevices = [
+      ...outcome.turnedOn,
+      ...outcome.turnedOff,
+      ...outcome.alreadyOn,
+      ...outcome.alreadyOff,
+    ];
+    const offlineHardware = Array.from(
+      new Set(
+        touchedDevices
+          .map((d) => resolveHardwareStatus(d.controller_id, controllerMap))
+          .filter((hw) => hw.endsWith('(Offline)'))
+      )
+    );
+
+    return {
+      result: {
+        ok: true,
+        preset_name: preset.name,
+        room_name: roomName,
+        already_in_state: changedCount === 0,
+        changed: changedCount > 0,
+        changed_count: changedCount,
+        turned_on: outcome.turnedOn.map((d) => d.name),
+        turned_off: outcome.turnedOff.map((d) => d.name),
+        already_on: outcome.alreadyOn.map((d) => d.name),
+        already_off: outcome.alreadyOff.map((d) => d.name),
+        offline_hardware: offlineHardware,
+      },
+      actions: outcome.actions,
+    };
+  }
+
   if (name === 'get_device_status') {
     const targetType = typeof args.target_type === 'string' ? args.target_type : 'all';
     const targetId = typeof args.target_id === 'string' ? args.target_id : '';
@@ -598,6 +731,7 @@ export async function streamSmartHomeAssistant(params: {
   rooms: Room[];
   controllers: SafeController[];
   devices: Device[];
+  presets?: Preset[];
   onTextDelta?: (chunk: string) => void;
   onStatus?: (statusText: string) => void;
   onActions?: (actions: ActionLog[]) => void;
@@ -607,7 +741,8 @@ export async function streamSmartHomeAssistant(params: {
     params.assistantProfile,
     params.rooms,
     params.controllers,
-    params.devices
+    params.devices,
+    params.presets ?? []
   );
 
   // Bangun riwayat percakapan singkat agar konteks obrolan tetap nyambung & ringan

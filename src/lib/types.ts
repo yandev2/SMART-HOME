@@ -27,6 +27,18 @@ export interface Device {
   updated_at: string;
 }
 
+export interface Preset {
+  id: string;
+  user_id: string;
+  room_id: string | null;
+  name: string;
+  keywords: string;
+  device_ids: string[];
+  turn_off_others: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ActionLog {
   device_id: string;
   device_name: string;
