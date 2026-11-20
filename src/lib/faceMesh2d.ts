@@ -66,6 +66,7 @@ function clamp(v: number, min: number, max: number): number {
 
 export interface SampledFaceAppearance {
   skinColor: string;
+  skinColorTransparent: string;
   lidColor: string;
   lipColor: string;
   lashColor: string;
@@ -107,6 +108,7 @@ export function analyzeFaceAppearance(
 
   const fallback: SampledFaceAppearance = {
     skinColor: 'rgb(250, 214, 191)',
+    skinColorTransparent: 'rgba(250, 214, 191, 0)',
     lidColor: 'rgb(240, 200, 178)',
     lipColor: 'rgb(215, 78, 78)',
     lashColor: 'rgb(30, 27, 24)',
@@ -258,6 +260,7 @@ export function analyzeFaceAppearance(
 
   return {
     skinColor: rgbCss(skinR, skinG, skinB),
+    skinColorTransparent: rgbCss(skinR, skinG, skinB, 0),
     lidColor: rgbCss(lidR, lidG, lidB),
     lipColor: finalLipCss,
     lashColor: 'rgb(34, 26, 26)',
@@ -392,29 +395,46 @@ export function renderAnimatedFaceCanvas(
 
     const halfW = mrx * 1.48;
     const chinSpan = mry * 2.15;
-    const colStep = Math.max(1.5, width / 140);
+    const colStep = Math.max(0.9, width / 220);
     const numBands = 5;
     // Kurva bobot turun per pita dari bibir bawah (1.0) menuju dagu bawah (0.0)
     const bandDrops = [1.0, 0.72, 0.42, 0.16, 0.0];
     const srcScaleX = srcW / width;
     const srcScaleY = srcH / height;
 
-    // Tutupi celah tipis bekas bibir lama di belakang bukaan sebelum dagu digambar turun
+    const leftX = mx - openRx;
+    const rightX = mx + openRx;
+    const cornerY = my + cornerOffset;
+    const upperMidY = my - dropPx * 0.14;
+    const lowerMidY = my + dropPx;
+    const upperCtrlY = 2 * upperMidY - cornerY;
+    const lowerCtrlY = 2 * lowerMidY - cornerY;
+
+    // Tutupi celah bekas bibir lama hanya di bawah garis bibir atas dengan alpha kulit yang sama (bebas lengkung gelap!)
     ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(leftX - openRx * 0.2, cornerY - 1);
+    ctx.quadraticCurveTo(mx, upperCtrlY - 1, rightX + openRx * 0.2, cornerY - 1);
+    ctx.lineTo(mx + halfW, my + dropPx + mry * 0.9);
+    ctx.lineTo(mx - halfW, my + dropPx + mry * 0.9);
+    ctx.closePath();
+    ctx.clip();
+
+    const fadeCy = my + dropPx * 0.36;
     const skinFade = ctx.createRadialGradient(
       mx,
-      my + dropPx * 0.25,
-      openRx * 0.2,
+      fadeCy,
+      openRx * 0.25,
       mx,
-      my + dropPx * 0.25,
-      openRx * 1.05
+      fadeCy,
+      openRx * 1.1
     );
     skinFade.addColorStop(0, appearance.skinColor);
-    skinFade.addColorStop(0.75, appearance.skinColor);
-    skinFade.addColorStop(1, 'rgba(0,0,0,0)');
+    skinFade.addColorStop(0.7, appearance.skinColor);
+    skinFade.addColorStop(1, appearance.skinColorTransparent);
     ctx.fillStyle = skinFade;
     ctx.beginPath();
-    ctx.ellipse(mx, my + dropPx * 0.22, openRx * 1.05, mry * 0.5 + dropPx * 0.65, 0, 0, Math.PI * 2);
+    ctx.ellipse(mx, fadeCy, openRx * 1.1, mry * 0.38 + dropPx * 0.55, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
@@ -424,7 +444,8 @@ export function renderAnimatedFaceCanvas(
       if (wx <= 0.005) continue;
 
       const lipNorm = clamp((dx + colStep * 0.5 - mx) / Math.max(1, openRx), -1, 1);
-      const startY = my + cornerOffset * (lipNorm * lipNorm);
+      // Mulai tepat di bawah garis bibir agar kulit dagu mulus ikut turun tanpa bintik bibir
+      const startY = my + cornerOffset * (lipNorm * lipNorm) + mry * 0.18;
       const colDrop = dropPx * wx;
       const sx = clamp(dx * srcScaleX, 0, srcW - 1);
       const sw = Math.max(0.5, colStep * srcScaleX);
@@ -446,13 +467,6 @@ export function renderAnimatedFaceCanvas(
     }
 
     // B. Gambar rongga mulut berbentuk lengkung bibir asli (Bezier tepat melewati titik tengah & sudut)
-    const leftX = mx - openRx;
-    const rightX = mx + openRx;
-    const cornerY = my + cornerOffset;
-    const upperMidY = my - dropPx * 0.14;
-    const lowerMidY = my + dropPx;
-    const upperCtrlY = 2 * upperMidY - cornerY;
-    const lowerCtrlY = 2 * lowerMidY - cornerY;
 
     ctx.save();
     ctx.beginPath();
@@ -496,11 +510,11 @@ export function renderAnimatedFaceCanvas(
     ctx.quadraticCurveTo(mx, upperCtrlY, rightX, cornerY);
     ctx.stroke();
 
-    ctx.globalAlpha = 0.72;
-    ctx.lineWidth = Math.max(1.1, mrx * 0.09);
+    ctx.globalAlpha = 0.88;
+    ctx.lineWidth = Math.max(1.5, mrx * 0.11);
     ctx.beginPath();
-    ctx.moveTo(leftX + openRx * 0.12, cornerY + dropPx * 0.1);
-    ctx.quadraticCurveTo(mx, lowerCtrlY + 0.5, rightX - openRx * 0.12, cornerY + dropPx * 0.1);
+    ctx.moveTo(leftX + openRx * 0.1, cornerY + dropPx * 0.08);
+    ctx.quadraticCurveTo(mx, lowerCtrlY + 0.5, rightX - openRx * 0.1, cornerY + dropPx * 0.08);
     ctx.stroke();
     ctx.restore();
   }
