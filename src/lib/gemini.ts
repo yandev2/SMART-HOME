@@ -221,7 +221,7 @@ ATURAN WAJIB:
 10. TOLERANSI PERINTAH SUARA (STT): Input user sering berasal dari mikrofon (Speech-to-Text Bahasa Indonesia) sehingga kadang terdapat salah dengar fonetik ringan (contoh: "matikan labu kamar" = "Lampu Kamar", "nyalahin/nyala in" = "nyalakan", "keras" = "Teras", "kibas" = "Kipas"). Jika konteks kalimat dan kemiripan bunyi jelas mengarah ke salah satu perangkat/ruangan di database, pahami maksud sebenarnya dengan cerdas (tetap tanya singkat jika benar-benar meragukan).
 11. KONTROL WLED / SMART LED WS2812 & KREASI MOOD:
     - Sistem ini juga mendukung lampu RGB WS2812 (\`PERANGKAT WLED\` dan \`PRESET WLED\`) secara terpisah dari switch relay.
-    - Jika user memerintahkan ganti warna, kecerahan, efek, atau menyalakan/mematikan unit WLED (contoh: "ubah WLED kamar jadi biru", "bikin warna pink redup", "efek pelangi"), WAJIB panggil tool \`control_wled\` dengan \`wled_id\`, \`is_on: true\`, dan kode warna HEX \`#RRGGBB\`, \`brightness\` (1-255), \`effect\`, \`speed\` yang sesuai.
+    - Jika user memerintahkan ganti warna, kecerahan, efek, atau menyalakan/mematikan unit WLED (contoh: "ubah WLED kamar jadi biru", "bikin warna pink redup", "efek pelangi"), WAJIB panggil tool \`control_wled\` dengan \`wled_id\`, \`is_on: true\`, dan kode warna HEX \`#RRGGBB\`, \`brightness\` (1-255), \`effect\`, \`speed\` yang sesuai. Catatan penting: efek \`"rainbow"\` dan \`"fire"\` mengabaikan warna tunggal, jadi saat user meminta warna spesifik (misal "biru", "merah", "ungu"), setel \`effect: "solid"\` (kecuali user menyebut efek lain atau sebelumnya sudah memakai efek berbasis warna seperti \`"breathe"\` / \`"sparkle"\`).
     - Jika user meminta salah satu preset WLED pada daftar \`PRESET WLED\`, WAJIB panggil \`activate_wled_preset\`.
     - KREASI SUASANA HATI (EMPATI + WARNA KREATIF): Bila user bercerita tentang perasaan atau suasana hati (contoh: "aku lagi sedih", "capek pengen tenang", "suasana romantis", "mau fokus ngoding", "lagi seneng banget") dan user punya unit WLED, balas dengan empati DAN kreasikan pencahayaan WLED dengan memanggil \`control_wled\` secara langsung! Contoh inspirasi:
       * Sedih / galau -> merah-ungu temaram atau biru-ungu lembut redup (misal \`#6D28D9\` / \`#7E225E\`, brightness \`75-110\`, efek \`"breathe"\`, speed \`65\`).
@@ -862,7 +862,13 @@ async function executeToolCall(
       args.brightness !== undefined
         ? clampWledByte(Number(args.brightness), 1, 255, row.brightness)
         : row.brightness;
-    const nextEffect = isValidWledEffect(args.effect) ? args.effect : row.effect;
+    // Efek rainbow/fire tidak memakai color_hex tunggal -> otomatis pindah ke 'solid' saat warna diubah tanpa menyebut efek
+    const explicitEffect = isValidWledEffect(args.effect) ? args.effect : null;
+    const autoSwitchFromFixedEffect =
+      !explicitEffect &&
+      typeof args.color_hex === 'string' &&
+      (row.effect === 'rainbow' || row.effect === 'fire');
+    const nextEffect = explicitEffect ?? (autoSwitchFromFixedEffect ? 'solid' : row.effect);
     const nextSpeed =
       args.speed !== undefined
         ? clampWledByte(Number(args.speed), 0, 255, row.speed)

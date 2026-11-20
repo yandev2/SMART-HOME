@@ -574,6 +574,9 @@ export default function WledManager({
                               {
                                 is_on: true,
                                 color_hex: sanitizeHexColor(e.target.value),
+                                ...(st.effect === 'rainbow' || st.effect === 'fire'
+                                  ? { effect: 'solid' }
+                                  : {}),
                                 active_preset_id: null,
                               },
                               180
@@ -600,6 +603,9 @@ export default function WledManager({
                             updateWledState(dev, {
                               is_on: true,
                               color_hex: swatch.hex,
+                              ...(st.effect === 'rainbow' || st.effect === 'fire'
+                                ? { effect: 'solid' }
+                                : {}),
                               active_preset_id: null,
                             })
                           }
