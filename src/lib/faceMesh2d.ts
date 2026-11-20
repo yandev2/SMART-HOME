@@ -385,62 +385,65 @@ export function renderAnimatedFaceCanvas(
     const curveNorm = rig.mouth.curve ?? appearance.smileCurveNorm;
     const cornerOffset = curveNorm * openRx;
 
-    // A. Geser potongan piksel bibir bawah & dagu sedikit ke bawah agar rahang ikut bergerak
+    // A. Deformasi dagu & bibir bawah elastis (halus ke tepi pipi & leher, bebas garis patah)
     const imgEl = img as HTMLImageElement;
     const srcW = imgEl.naturalWidth || imgEl.width || width;
     const srcH = imgEl.naturalHeight || imgEl.height || height;
-    const patchRx = mrx * 1.25;
-    const patchTop = my - mry * 0.1;
-    const patchH = mry * 2.15;
 
-    const sx = clamp((mx - patchRx) / width, 0, 1) * srcW;
-    const sy = clamp(patchTop / height, 0, 1) * srcH;
-    const sw = clamp((patchRx * 2) / width, 0.02, 1) * srcW;
-    const sh = clamp(patchH / height, 0.02, 1) * srcH;
+    const halfW = mrx * 1.48;
+    const chinSpan = mry * 2.15;
+    const colStep = Math.max(1.5, width / 140);
+    const numBands = 5;
+    // Kurva bobot turun per pita dari bibir bawah (1.0) menuju dagu bawah (0.0)
+    const bandDrops = [1.0, 0.72, 0.42, 0.16, 0.0];
+    const srcScaleX = srcW / width;
+    const srcScaleY = srcH / height;
 
+    // Tutupi celah tipis bekas bibir lama di belakang bukaan sebelum dagu digambar turun
     ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(
-      mx,
-      my + mry * 0.8 + dropPx * 0.65,
-      patchRx,
-      mry * 1.25 + dropPx * 0.45,
-      0,
-      0,
-      Math.PI * 2
-    );
-    ctx.clip();
-
-    // Isi area belakang bibir atas->bawah dengan gradasi kulit lembut (bebas tepi kotak)
     const skinFade = ctx.createRadialGradient(
       mx,
       my + dropPx * 0.25,
-      patchRx * 0.25,
+      openRx * 0.2,
       mx,
       my + dropPx * 0.25,
-      patchRx
+      openRx * 1.05
     );
     skinFade.addColorStop(0, appearance.skinColor);
     skinFade.addColorStop(0.75, appearance.skinColor);
     skinFade.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = skinFade;
     ctx.beginPath();
-    ctx.ellipse(mx, my + dropPx * 0.2, patchRx, mry * 0.7 + dropPx * 0.65, 0, 0, Math.PI * 2);
+    ctx.ellipse(mx, my + dropPx * 0.22, openRx * 1.05, mry * 0.5 + dropPx * 0.65, 0, 0, Math.PI * 2);
     ctx.fill();
-
-    // Gambar potongan bibir bawah & dagu asli yang digeser turun
-    ctx.drawImage(
-      img,
-      sx,
-      sy,
-      sw,
-      sh,
-      mx - patchRx,
-      patchTop + dropPx * 0.75,
-      patchRx * 2,
-      patchH
-    );
     ctx.restore();
+
+    for (let dx = mx - halfW; dx < mx + halfW; dx += colStep) {
+      const normX = (dx + colStep * 0.5 - mx) / halfW; // -1..1
+      const wx = 0.5 * (1 + Math.cos(clamp(normX, -1, 1) * Math.PI));
+      if (wx <= 0.005) continue;
+
+      const lipNorm = clamp((dx + colStep * 0.5 - mx) / Math.max(1, openRx), -1, 1);
+      const startY = my + cornerOffset * (lipNorm * lipNorm);
+      const colDrop = dropPx * wx;
+      const sx = clamp(dx * srcScaleX, 0, srcW - 1);
+      const sw = Math.max(0.5, colStep * srcScaleX);
+
+      for (let b = 0; b < numBands - 1; b++) {
+        const f0 = b / (numBands - 1);
+        const f1 = (b + 1) / (numBands - 1);
+        const srcY0 = startY + chinSpan * f0;
+        const srcY1 = startY + chinSpan * f1;
+        const dstY0 = srcY0 + colDrop * bandDrops[b];
+        const dstY1 = srcY1 + colDrop * bandDrops[b + 1];
+
+        const sy = clamp(srcY0 * srcScaleY, 0, srcH - 1);
+        const sh = Math.max(0.5, (srcY1 - srcY0) * srcScaleY);
+        const dh = Math.max(0.5, dstY1 - dstY0 + 0.55);
+
+        ctx.drawImage(img, sx, sy, sw, sh, dx, dstY0, colStep + 0.55, dh);
+      }
+    }
 
     // B. Gambar rongga mulut berbentuk lengkung bibir asli (Bezier tepat melewati titik tengah & sudut)
     const leftX = mx - openRx;
