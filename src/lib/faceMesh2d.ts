@@ -83,6 +83,34 @@ export interface FaceAnimState {
   isSpeaking: boolean;
   isListening: boolean;
   isThinking: boolean;
+  /** Nilai gerakan leher yang sudah diperhalus (exponential smoothing seperti mulut) */
+  smoothRollRad?: number;
+  smoothShiftXNorm?: number;
+  smoothShiftYNorm?: number;
+}
+
+// Kanvas buffer internal yang digunakan ulang untuk merender wajah utuh (mata + mulut)
+// sebelum dideformasi secara elastis pada leher, sehingga 100% bebas garis potong clip().
+let sharedFaceBufferCanvas: HTMLCanvasElement | null = null;
+
+function getSharedFaceBuffer(width: number, height: number): {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+} | null {
+  if (typeof document === 'undefined') return null;
+  if (!sharedFaceBufferCanvas) {
+    sharedFaceBufferCanvas = document.createElement('canvas');
+  }
+  if (
+    sharedFaceBufferCanvas.width !== width ||
+    sharedFaceBufferCanvas.height !== height
+  ) {
+    sharedFaceBufferCanvas.width = width;
+    sharedFaceBufferCanvas.height = height;
+  }
+  const ctx = sharedFaceBufferCanvas.getContext('2d');
+  if (!ctx) return null;
+  return { canvas: sharedFaceBufferCanvas, ctx };
 }
 
 function rgbCss(r: number, g: number, b: number, a = 1): string {
@@ -270,70 +298,24 @@ export function analyzeFaceAppearance(
 }
 
 /**
- * Merender gambar avatar utuh TANPA grid segitiga kasar sehingga bebas garis celah:
- * 1. Bahu/badan di bawah neckY bernapas pelan.
- * 2. Kepala di atas neckY bergerak miring & mengangguk halus berporos leher.
- * 3. Kelopak mata berkedip sesuai warna kulit/kelopak asli gambar.
- * 4. Mulut terbuka tepat pada garis bibir terdeteksi, mengikuti lekuk bibir asli
- *    dengan rongga mulut lembut + bibir bawah ikut turun.
+ * Merender ekspresi wajah (gambar dasar + kedipan mata + mulut elastis) dalam posisi netral
+ * ke dalam kanvas target tanpa pemotongan leher.
  */
-export function renderAnimatedFaceCanvas(
+function renderNeutralFaceFeatures(
   ctx: CanvasRenderingContext2D,
   img: CanvasImageSource,
   rig: AvatarRig,
   appearance: SampledFaceAppearance,
-  anim: FaceAnimState,
+  mouthOpen: number,
+  blink: number,
   width: number,
   height: number
 ) {
-  const { timeSec, mouthOpen, blink, isSpeaking, isListening, isThinking } = anim;
-  const motion = rig.motionIntensity;
-
-  const idleSway = Math.sin(timeSec * 1.15) * 0.011 * motion;
-  const speakNod = isSpeaking
-    ? Math.sin(timeSec * 6.5) * (0.007 + mouthOpen * 0.013) * motion
-    : 0;
-  const speakTilt = isSpeaking
-    ? Math.sin(timeSec * 2.8) * (0.016 + mouthOpen * 0.022) * motion
-    : 0;
-  const listenTilt = isListening ? 0.028 * motion : isThinking ? -0.018 * motion : 0;
-
-  const headRollRad = idleSway + speakTilt + listenTilt;
-  const headShiftX =
-    (Math.sin(timeSec * 0.75) * 0.003 + (isSpeaking ? Math.sin(timeSec * 3.1) * 0.004 : 0)) *
-    motion *
-    width;
-  const headShiftY = (Math.sin(timeSec * 1.6) * 0.003 + speakNod) * motion * height;
-  const shoulderBreathY = Math.sin(timeSec * 1.6 - 0.5) * 0.0025 * motion * height;
-
-  const pivotX = width * 0.5;
-  const pivotY = rig.neckY * height;
-
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
-
-  // 1. Gambar bagian bahu / baju (di bawah batas leher) agar tetap stabil & menyatu
-  const neckPx = rig.neckY * height;
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, Math.max(0, neckPx - height * 0.03), width, height);
-  ctx.clip();
-  ctx.translate(0, shoulderBreathY);
-  ctx.drawImage(img, 0, 0, width, height);
-  ctx.restore();
-
-  // 2. Gambar bagian kepala & wajah berporos di leher (bebas garis segitiga!)
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, width, Math.min(height, neckPx + height * 0.035));
-  ctx.clip();
-
-  ctx.translate(pivotX + headShiftX, pivotY + headShiftY);
-  ctx.rotate(headRollRad);
-  ctx.translate(-pivotX, -pivotY);
   ctx.drawImage(img, 0, 0, width, height);
 
-  // 3. Animasi Kedipan Mata langsung di dalam transformasi kepala
+  // 1. Animasi Kedipan Mata
   if (blink > 0.02) {
     const eyes = [rig.leftEye, rig.rightEye];
     for (const eye of eyes) {
@@ -350,13 +332,11 @@ export function renderAnimatedFaceCanvas(
       ctx.ellipse(ex, ey, erx * 1.05, ery * 1.08, 0, 0, Math.PI * 2);
       ctx.clip();
 
-      // Kelopak kulit turun menutupi bola mata secara lembut
       ctx.fillStyle = appearance.lidColor;
       ctx.beginPath();
       ctx.rect(ex - erx * 1.2, topY - 4, erx * 2.4, currentLidY - topY + 4);
       ctx.fill();
 
-      // Garis bulu mata saat menutup penuh atau setengah menutup
       if (blink > 0.45) {
         ctx.strokeStyle = appearance.lashColor;
         ctx.lineWidth = Math.max(1.5, ery * 0.19);
@@ -375,7 +355,7 @@ export function renderAnimatedFaceCanvas(
     }
   }
 
-  // 4. Animasi Mulut mengikuti posisi, lengkungan, & warna bibir karakter
+  // 2. Animasi Mulut mengikuti posisi, lengkungan, & warna bibir karakter
   if (mouthOpen > 0.03) {
     const mx = rig.mouth.x * width;
     const my = rig.mouth.y * height;
@@ -397,7 +377,6 @@ export function renderAnimatedFaceCanvas(
     const chinSpan = mry * 2.15;
     const colStep = Math.max(0.9, width / 220);
     const numBands = 5;
-    // Kurva bobot turun per pita dari bibir bawah (1.0) menuju dagu bawah (0.0)
     const bandDrops = [1.0, 0.72, 0.42, 0.16, 0.0];
     const srcScaleX = srcW / width;
     const srcScaleY = srcH / height;
@@ -410,7 +389,6 @@ export function renderAnimatedFaceCanvas(
     const upperCtrlY = 2 * upperMidY - cornerY;
     const lowerCtrlY = 2 * lowerMidY - cornerY;
 
-    // Tutupi celah bekas bibir lama hanya di bawah garis bibir atas dengan alpha kulit yang sama (bebas lengkung gelap!)
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(leftX - openRx * 0.2, cornerY - 1);
@@ -439,12 +417,11 @@ export function renderAnimatedFaceCanvas(
     ctx.restore();
 
     for (let dx = mx - halfW; dx < mx + halfW; dx += colStep) {
-      const normX = (dx + colStep * 0.5 - mx) / halfW; // -1..1
+      const normX = (dx + colStep * 0.5 - mx) / halfW;
       const wx = 0.5 * (1 + Math.cos(clamp(normX, -1, 1) * Math.PI));
       if (wx <= 0.005) continue;
 
       const lipNorm = clamp((dx + colStep * 0.5 - mx) / Math.max(1, openRx), -1, 1);
-      // Mulai tepat di bawah garis bibir agar kulit dagu mulus ikut turun tanpa bintik bibir
       const startY = my + cornerOffset * (lipNorm * lipNorm) + mry * 0.18;
       const colDrop = dropPx * wx;
       const sx = clamp(dx * srcScaleX, 0, srcW - 1);
@@ -466,8 +443,7 @@ export function renderAnimatedFaceCanvas(
       }
     }
 
-    // B. Gambar rongga mulut berbentuk lengkung bibir asli (Bezier tepat melewati titik tengah & sudut)
-
+    // B. Gambar rongga mulut berbentuk lengkung bibir asli
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(leftX, cornerY);
@@ -482,20 +458,33 @@ export function renderAnimatedFaceCanvas(
     ctx.fillStyle = mouthGrad;
     ctx.fill();
 
-    // Klip ke dalam rongga mulut untuk gigi atas tipis & lidah hangat
     ctx.clip();
 
     if (dropPx > 3.5) {
-      // Highlight gigi atas sangat halus
       ctx.fillStyle = 'rgba(255, 246, 242, 0.85)';
       ctx.beginPath();
-      ctx.ellipse(mx, upperMidY + dropPx * 0.12, openRx * 0.56, Math.max(1.5, dropPx * 0.18), 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        mx,
+        upperMidY + dropPx * 0.12,
+        openRx * 0.56,
+        Math.max(1.5, dropPx * 0.18),
+        0,
+        0,
+        Math.PI * 2
+      );
       ctx.fill();
 
-      // Lidah lembut di bagian bawah rongga mulut
       ctx.fillStyle = 'rgba(235, 96, 120, 0.75)';
       ctx.beginPath();
-      ctx.ellipse(mx, lowerMidY - dropPx * 0.1, openRx * 0.58, Math.max(2, dropPx * 0.36), 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        mx,
+        lowerMidY - dropPx * 0.1,
+        openRx * 0.58,
+        Math.max(2, dropPx * 0.36),
+        0,
+        0,
+        Math.PI * 2
+      );
       ctx.fill();
     }
     ctx.restore();
@@ -514,10 +503,190 @@ export function renderAnimatedFaceCanvas(
     ctx.lineWidth = Math.max(1.5, mrx * 0.11);
     ctx.beginPath();
     ctx.moveTo(leftX + openRx * 0.1, cornerY + dropPx * 0.08);
-    ctx.quadraticCurveTo(mx, lowerCtrlY + 0.5, rightX - openRx * 0.1, cornerY + dropPx * 0.08);
+    ctx.quadraticCurveTo(
+      mx,
+      lowerCtrlY + 0.5,
+      rightX - openRx * 0.1,
+      cornerY + dropPx * 0.08
+    );
     ctx.stroke();
     ctx.restore();
   }
+}
 
-  ctx.restore();
+/**
+ * Merender gambar avatar utuh dengan teknik Elastic Multi-Band Strip Warping (pola yang sama
+ * dengan animasi mulut) pada area leher & bahu:
+ * - TIDAK ADA pemotongan kotak ctx.clip() di leher, sehingga mustahil muncul garis patahan.
+ * - Wajah (mata + mulut) dirender utuh ke buffer, lalu melentur secara kontinyu dengan kurva
+ *   kosinus w(y) = 0.5 * (1 + cos(pi * u)) dari kepala (w = 1.0) melewati leher hingga
+ *   menyatu sempurna ke bahu/dada (w = 0.0).
+ */
+export function renderAnimatedFaceCanvas(
+  ctx: CanvasRenderingContext2D,
+  img: CanvasImageSource,
+  rig: AvatarRig,
+  appearance: SampledFaceAppearance,
+  anim: FaceAnimState,
+  width: number,
+  height: number
+) {
+  const { timeSec, mouthOpen, blink, isSpeaking, isListening, isThinking } = anim;
+  const motion = rig.motionIntensity;
+
+  // Gunakan nilai gerakan leher yang sudah di-smoothing (exponential damping) bila tersedia
+  let headRollRad: number;
+  let headShiftX: number;
+  let headShiftY: number;
+
+  if (
+    typeof anim.smoothRollRad === 'number' &&
+    typeof anim.smoothShiftXNorm === 'number' &&
+    typeof anim.smoothShiftYNorm === 'number'
+  ) {
+    headRollRad = anim.smoothRollRad * motion;
+    headShiftX = anim.smoothShiftXNorm * motion * width;
+    headShiftY = anim.smoothShiftYNorm * motion * height;
+  } else {
+    const idleSway = Math.sin(timeSec * 1.15) * 0.009 * motion;
+    const speakNod = isSpeaking
+      ? Math.sin(timeSec * 5.8) * (0.005 + mouthOpen * 0.01) * motion
+      : 0;
+    const speakTilt = isSpeaking
+      ? Math.sin(timeSec * 2.5) * (0.012 + mouthOpen * 0.016) * motion
+      : 0;
+    const listenTilt = isListening ? 0.022 * motion : isThinking ? -0.015 * motion : 0;
+
+    headRollRad = idleSway + speakTilt + listenTilt;
+    headShiftX =
+      (Math.sin(timeSec * 0.75) * 0.0025 +
+        (isSpeaking ? Math.sin(timeSec * 2.9) * 0.003 : 0)) *
+      motion *
+      width;
+    headShiftY = (Math.sin(timeSec * 1.6) * 0.0025 + speakNod) * motion * height;
+  }
+
+  const shoulderBreathY = Math.sin(timeSec * 1.6 - 0.5) * 0.0022 * motion * height;
+
+  // Tahap 1: Render wajah utuh (mata berkedip + mulut elastis) ke offscreen buffer
+  const faceBuffer = getSharedFaceBuffer(width, height);
+  if (!faceBuffer) {
+    renderNeutralFaceFeatures(ctx, img, rig, appearance, mouthOpen, blink, width, height);
+    return;
+  }
+
+  renderNeutralFaceFeatures(
+    faceBuffer.ctx,
+    img,
+    rig,
+    appearance,
+    mouthOpen,
+    blink,
+    width,
+    height
+  );
+
+  // Tahap 2: Deformasi Elastis Leher & Kepala mengikuti pola Strip-Warping Mulut (100% bebas clip/garis patah)
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const pivotX = width * 0.5;
+  const pivotY = rig.neckY * height;
+  const srcCanvas = faceBuffer.canvas;
+
+  // Zona transisi elastis leher: dimulai tepat di bawah dagu/mulut hingga menyatu ke bahu/dada atas
+  const mouthFloorY = (rig.mouth.y + rig.mouth.ry * 1.45) * height;
+  const yTop = clamp(
+    Math.max(mouthFloorY, (rig.neckY - 0.115) * height),
+    height * 0.42,
+    height * 0.78
+  );
+  const yBot = clamp(
+    Math.max(yTop + height * 0.14, (rig.neckY + 0.125) * height),
+    yTop + height * 0.1,
+    height * 0.95
+  );
+  const neckSpan = Math.max(1, yBot - yTop);
+
+  // Fungsi bobot kosinus halus C^1 (mengikuti pola wx & bandDrops pada kode mulut):
+  // - Di atas yTop (Kepala & Wajah): w = 1.0 (utuh & tajam 100%)
+  // - Di antara yTop .. yBot (Zona Leher): meluruh mulus mengikuti 0.5 * (1 + cos(pi * u))
+  // - Di bawah yBot (Bahu & Badan): w = 0.0 (menyatu 100% tanpa patahan)
+  const weightAtY = (y: number): number => {
+    if (y <= yTop) return 1.0;
+    if (y >= yBot) return 0.0;
+    const u = (y - yTop) / neckSpan;
+    return 0.5 * (1 + Math.cos(u * Math.PI));
+  };
+
+  // Posisi terdeformasi pada garis tengah (x = pivotX) dan sudut kemiringan lokal theta(y)
+  const evalSpineAtY = (y: number) => {
+    const w = weightAtY(y);
+    const theta = headRollRad * w;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const tx = headShiftX * w;
+    const ty = headShiftY * w + shoulderBreathY * (1 - w);
+    const dyPivot = y - pivotY;
+
+    return {
+      cx: pivotX + tx - dyPivot * sinT,
+      cy: pivotY + ty + dyPivot * cosT,
+      cosT,
+      sinT,
+    };
+  };
+
+  // A. Render Zona Kepala & Wajah (0 .. yTop) dalam 1 panggilan utuh dengan matriks w = 1.0
+  if (yTop > 1) {
+    const topSpine = evalSpineAtY(0);
+    const a = topSpine.cosT;
+    const b = topSpine.sinT;
+    const c = -topSpine.sinT;
+    const d = topSpine.cosT;
+    const e = topSpine.cx - a * pivotX;
+    const f = topSpine.cy - b * pivotX;
+
+    ctx.setTransform(a, b, c, d, e, f);
+    const headSrcH = Math.min(height, yTop + 0.85);
+    ctx.drawImage(srcCanvas, 0, 0, width, headSrcH, 0, 0, width, headSrcH);
+  }
+
+  // B. Render Zona Transisi Leher Elastis (yTop .. yBot) dengan 28 pita Jacobian Affine kontinyu
+  // Setiap pita [y0, y1] memiliki tepi atas yang menyambung 100% tepat dengan pita sebelumnya
+  // dan tepi bawah yang menyambung 100% tepat dengan pita berikutnya (0.000px celah/step).
+  const numNeckBands = 28;
+  const bandStep = neckSpan / numNeckBands;
+
+  for (let i = 0; i < numNeckBands; i++) {
+    const y0 = yTop + i * bandStep;
+    const y1 = y0 + bandStep;
+    const yMid = 0.5 * (y0 + y1);
+
+    const s0 = evalSpineAtY(y0);
+    const s1 = evalSpineAtY(y1);
+    const sMid = evalSpineAtY(yMid);
+
+    // Matriks affine Jacobian yang memetakan garis (x, y0) -> (X(x, y0), Y(x, y0))
+    // dan garis (x, y1) -> (X(x, y1), Y(x, y1)) secara kontinyu:
+    const a = sMid.cosT;
+    const b = sMid.sinT;
+    const c = (s1.cx - s0.cx) / bandStep;
+    const d = (s1.cy - s0.cy) / bandStep;
+    const e = s0.cx - a * pivotX - c * y0;
+    const f = s0.cy - b * pivotX - d * y0;
+
+    ctx.setTransform(a, b, c, d, e, f);
+    const drawH = Math.min(height - y0, bandStep + 0.85);
+    ctx.drawImage(srcCanvas, 0, y0, width, drawH, 0, y0, width, drawH);
+  }
+
+  // C. Render Zona Badan & Bahu Bawah (yBot .. height) dalam 1 panggilan utuh (w = 0.0)
+  if (yBot < height - 1) {
+    const botH = height - yBot;
+    ctx.setTransform(1, 0, 0, 1, 0, shoulderBreathY);
+    ctx.drawImage(srcCanvas, 0, yBot, width, botH, 0, yBot, width, botH);
+  }
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
